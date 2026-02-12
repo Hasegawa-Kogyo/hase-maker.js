@@ -1,7 +1,6 @@
 examples/*
 debug/*
 src/*
-target/*
 test/*
 tsconfig.json
 package-lock.json
