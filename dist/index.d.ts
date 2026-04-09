@@ -2772,6 +2772,132 @@ declare namespace MakerJs.exporter {
         styleName?: string;
     }
 }
+declare namespace MakerJs {
+    type DimensionType = 'linear' | 'aligned' | 'angular' | 'radial' | 'diameter';
+    interface IDimensionOptions {
+        text?: string;
+        textHeight?: number;
+        arrowSize?: number;
+        extensionLineOffset?: number;
+        textPosition?: IPoint;
+        textRotation?: number;
+        layer?: string;
+        key?: string;
+    }
+    interface IDimensionDataBase {
+        type: DimensionType;
+        layer: string;
+        text?: string;
+        textHeight?: number;
+        measuredValue?: number;
+        textPosition?: IPoint;
+        textRotation?: number;
+    }
+    interface ILinearDimensionData extends IDimensionDataBase {
+        type: 'linear' | 'aligned';
+        point1: IPoint;
+        point2: IPoint;
+        offset: number;
+        dimensionAngle?: number;
+    }
+    interface IAngularDimensionData extends IDimensionDataBase {
+        type: 'angular';
+        centerPoint: IPoint;
+        point1: IPoint;
+        point2: IPoint;
+        radius: number;
+    }
+    interface IRadialDimensionData extends IDimensionDataBase {
+        type: 'radial' | 'diameter';
+        centerPoint: IPoint;
+        radiusPoint: IPoint;
+        radius: number;
+        diameter: number;
+    }
+    type IDimensionData = ILinearDimensionData | IAngularDimensionData | IRadialDimensionData;
+    interface IDimensionModel extends IModel {
+        dimensionData: IDimensionData;
+    }
+    interface ILabelData {
+        type: 'label';
+        layer: string;
+        text: string;
+        textHeight?: number;
+        textPosition?: IPoint;
+        textRotation?: number;
+    }
+    interface ILabelModel extends IModel {
+        labelData: ILabelData;
+    }
+}
+declare namespace MakerJs.dimension {
+    interface IPathNameOptions {
+        key?: string;
+        layer?: string;
+        includeRouteKey?: boolean;
+        alignToPath?: boolean;
+        textOffset?: number;
+        textSpan?: number;
+    }
+    interface ILabelOptions extends IDimensionOptions {
+        shelfLength?: number;
+        textWidth?: number;
+    }
+    type DimensionAxis = 'width' | 'height';
+    interface IModelExtentsDimensionOptions extends IDimensionOptions {
+        axis?: DimensionAxis | DimensionAxis[];
+        offset?: number;
+        horizontalOffset?: number;
+        verticalOffset?: number;
+        horizontalText?: string;
+        verticalText?: string;
+        horizontalLayer?: string;
+        verticalLayer?: string;
+    }
+    interface IDimensionCreateOptions extends IModelExtentsDimensionOptions {
+        type?: DimensionType | 'extents';
+    }
+    function addLinear(modelContext: IModel, line: IPathLine, offset: number, options?: IDimensionOptions): IDimensionModel;
+    function addLinear(modelContext: IModel, point1: IPoint, point2: IPoint, offset: number, options?: IDimensionOptions): IDimensionModel;
+    /**
+     * Add a linear dimension using an explicit point on the desired dimension line.
+     * This is useful when you have exact X/Y coordinates and want full placement control.
+     */
+    function addLinearAtPoint(modelContext: IModel, line: IPathLine, dimensionLinePoint: IPoint, options?: IDimensionOptions): IDimensionModel;
+    function addLinearAtPoint(modelContext: IModel, point1: IPoint, point2: IPoint, dimensionLinePoint: IPoint, options?: IDimensionOptions): IDimensionModel;
+    /**
+     * Create horizontal / vertical dimensions for a model's overall extents without mutating the source model.
+     */
+    function createModelExtentsDimensionModel(sourceModel: IModel, options?: IModelExtentsDimensionOptions): IModel;
+    /**
+     * Auto-dimension a model by its extents.
+     * Creates one horizontal and one vertical dimension based on model bounds.
+     */
+    function addModelExtentsDimensions(modelContext: IModel, options?: IModelExtentsDimensionOptions): {
+        horizontal: IDimensionModel;
+        vertical: IDimensionModel;
+    };
+    function create(line: IPathLine, offset: number, options?: IDimensionCreateOptions): IModel;
+    function create(source: IPathArc | IPathCircle | IModel, options?: IDimensionCreateOptions): IModel;
+    function add(modelContext: IModel, line: IPathLine, offset: number, options?: IDimensionCreateOptions): IModel;
+    function add(modelContext: IModel, source: IPathArc | IPathCircle | IModel, options?: IDimensionCreateOptions): IModel;
+    function addHorizontal(modelContext: IModel, line: IPathLine, yOffset: number, options?: IDimensionOptions): IDimensionModel;
+    function addHorizontal(modelContext: IModel, point1: IPoint, point2: IPoint, yOffset: number, options?: IDimensionOptions): IDimensionModel;
+    function addVertical(modelContext: IModel, line: IPathLine, xOffset: number, options?: IDimensionOptions): IDimensionModel;
+    function addVertical(modelContext: IModel, point1: IPoint, point2: IPoint, xOffset: number, options?: IDimensionOptions): IDimensionModel;
+    function addAngular(modelContext: IModel, arc: IPathArc, options?: IDimensionOptions): IDimensionModel;
+    function addAngular(modelContext: IModel, centerPoint: IPoint, point1: IPoint, point2: IPoint, radius: number, options?: IDimensionOptions): IDimensionModel;
+    function addRadial(modelContext: IModel, circleOrArc: IPathCircle | IPathArc, options?: IDimensionOptions): IDimensionModel;
+    function addRadial(modelContext: IModel, centerPoint: IPoint, radiusPoint: IPoint, options?: IDimensionOptions): IDimensionModel;
+    function addDiameter(modelContext: IModel, circleOrArc: IPathCircle | IPathArc, options?: IDimensionOptions): IDimensionModel;
+    function addDiameter(modelContext: IModel, centerPoint: IPoint, radiusPoint: IPoint, options?: IDimensionOptions): IDimensionModel;
+    function addPathNames(modelContext: IModel, options?: IPathNameOptions): IModel;
+    /**
+     * Add a text label / callout with a leader and horizontal shelf.
+     * `leaderStart` controls where the line begins and `shelfStart` controls where the text shelf starts.
+     */
+    function labels(modelContext: IModel, text: string, leaderStart: IPoint, shelfStart: IPoint, options?: ILabelOptions): ILabelModel;
+}
 declare namespace MakerJs.solvers {
     /**
      * Solves for the altitude of an equilateral triangle when you know its side length.
@@ -3954,6 +4080,43 @@ declare namespace MakerJs.models {
         paths: IPathMap;
         constructor(numberOfPoints: number, outerRadius: number, innerRadius?: number, skipPoints?: number);
         static InnerRadiusRatio(numberOfPoints: number, skipPoints: number): number;
+    }
+}
+declare namespace MakerJs.models {
+    class LinearDimension implements IDimensionModel {
+        models: IModelMap;
+        paths: IPathMap;
+        layer: string;
+        caption: ICaption;
+        dimensionData: ILinearDimensionData;
+        constructor(line: IPathLine, offset: number, options?: IDimensionOptions);
+        constructor(point1: IPoint, point2: IPoint, offset: number, options?: IDimensionOptions);
+    }
+    class AlignedDimension extends LinearDimension {
+        constructor(line: IPathLine, offset: number, options?: IDimensionOptions);
+        constructor(point1: IPoint, point2: IPoint, offset: number, options?: IDimensionOptions);
+    }
+    class AngularDimension implements IDimensionModel {
+        models: IModelMap;
+        paths: IPathMap;
+        layer: string;
+        caption: ICaption;
+        dimensionData: IAngularDimensionData;
+        constructor(arc: IPathArc, options?: IDimensionOptions);
+        constructor(centerPoint: IPoint, point1: IPoint, point2: IPoint, radius: number, options?: IDimensionOptions);
+    }
+    class RadialDimension implements IDimensionModel {
+        models: IModelMap;
+        paths: IPathMap;
+        layer: string;
+        caption: ICaption;
+        dimensionData: IRadialDimensionData;
+        constructor(circleOrArc: IPathCircle | IPathArc, options?: IDimensionOptions, isDiameter?: boolean);
+        constructor(centerPoint: IPoint, radiusPoint: IPoint, options?: IDimensionOptions, isDiameter?: boolean);
+    }
+    class Dimension {
+        static create(line: IPathLine, offset: number, options?: dimension.IDimensionCreateOptions): IModel;
+        static create(source: IPathArc | IPathCircle | IModel, options?: dimension.IDimensionCreateOptions): IModel;
     }
 }
 declare namespace fontkit {
