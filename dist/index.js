@@ -4620,8 +4620,9 @@ var MakerJs;
                 tables: {}
             };
             MakerJs.extendObject(opts, options);
+            var sourceModel;
             if (MakerJs.isModel(itemToExport)) {
-                var sourceModel = itemToExport;
+                sourceModel = itemToExport;
                 if (sourceModel.exporterOptions) {
                     MakerJs.extendObject(opts, sourceModel.exporterOptions['toDXF']);
                 }
@@ -4975,9 +4976,11 @@ var MakerJs;
             stylesOut(); // ✅ add STYLE table
             var dxfStr = outputDocument(doc);
             if (collectedDimensions.length || collectedLabels.length) {
+                var hasExplicitGlobalFontSize = options.fontSize !== undefined || !!(sourceModel && sourceModel.exporterOptions && sourceModel.exporterOptions['toDXF'] && sourceModel.exporterOptions['toDXF'].fontSize !== undefined);
+                var defaultDimensionTextHeight = hasExplicitGlobalFontSize ? opts.fontSize : 2.5;
                 var dxfWithTables = insertDXFDimensionTables(dxfStr, buildDXFDimensionTables(collectedDimensions, collectedLabels));
-                var dxfWithBlocks = insertDXFBlocks(dxfWithTables, buildDXFDimensionBlocks(collectedDimensions, collectedLabels));
-                var annotationEntities = buildDXFDimensionEntities(collectedDimensions) + buildDXFLabelEntities(collectedLabels);
+                var dxfWithBlocks = insertDXFBlocks(dxfWithTables, buildDXFDimensionBlocks(collectedDimensions, collectedLabels, opts.layerOptions, defaultDimensionTextHeight));
+                var annotationEntities = buildDXFDimensionEntities(collectedDimensions, opts.layerOptions, defaultDimensionTextHeight) + buildDXFLabelEntities(collectedLabels);
                 return insertDXFDimensionEntities(dxfWithBlocks, annotationEntities);
             }
             return dxfStr;
@@ -5194,6 +5197,15 @@ var MakerJs;
                 }
             }
         }
+        function resolveDXFAnnotationTextHeight(explicitTextHeight, layer, layerOptions, defaultTextHeight) {
+            if (defaultTextHeight === void 0) { defaultTextHeight = 2.5; }
+            if (explicitTextHeight !== undefined)
+                return explicitTextHeight;
+            var layerOption = layerOptions && layerOptions[layer];
+            if (layerOption && layerOption.fontSize !== undefined)
+                return layerOption.fontSize;
+            return defaultTextHeight;
+        }
         function appendDXFCaption(caption, offset, out, layer, textHeight) {
             var center = MakerJs.point.middle(caption.anchor);
             var x = center[0] + offset[0];
@@ -5244,8 +5256,9 @@ var MakerJs;
             out.push('0', 'ENDTAB', '0', 'TABLE', '2', 'DIMSTYLE', '70', '1', '0', 'DIMSTYLE', '2', 'STANDARD', '70', '0', '40', '1', '41', '2.5', '42', '0.625', '44', '1.25', '140', '2.5', '0', 'ENDTAB');
             return out.join('\n') + '\n';
         }
-        function buildDXFDimensionBlocks(dimensions, labels) {
+        function buildDXFDimensionBlocks(dimensions, labels, layerOptions, defaultTextHeight) {
             if (labels === void 0) { labels = []; }
+            if (defaultTextHeight === void 0) { defaultTextHeight = 2.5; }
             if (!dimensions.length && !labels.length)
                 return '';
             var out = [];
@@ -5262,7 +5275,7 @@ var MakerJs;
             dimensions.forEach(function (dim, i) {
                 var blockName = '*D' + i;
                 var layer = dim.data.layer || 'DIMENSIONS';
-                var textHeight = dim.data.textHeight === undefined ? 2.5 : dim.data.textHeight;
+                var textHeight = resolveDXFAnnotationTextHeight(dim.data.textHeight, layer, layerOptions, defaultTextHeight);
                 appendBlockHeader(blockName, '1');
                 appendDXFDimensionGeometry(dim.model, dim.offset, out, layer, textHeight);
                 appendBlockFooter();
@@ -5270,14 +5283,15 @@ var MakerJs;
             labels.forEach(function (label, i) {
                 var blockName = 'LABEL_' + i;
                 var layer = label.data.layer || 'DIMENSIONS';
-                var textHeight = label.data.textHeight === undefined ? 2.5 : label.data.textHeight;
+                var textHeight = resolveDXFAnnotationTextHeight(label.data.textHeight, layer, layerOptions, defaultTextHeight);
                 appendBlockHeader(blockName, '0');
                 appendDXFDimensionGeometry(label.model, label.offset, out, layer, textHeight);
                 appendBlockFooter();
             });
             return out.join('\n') + '\n';
         }
-        function buildDXFDimensionEntities(dimensions) {
+        function buildDXFDimensionEntities(dimensions, layerOptions, defaultTextHeight) {
+            if (defaultTextHeight === void 0) { defaultTextHeight = 2.5; }
             if (!dimensions.length)
                 return '';
             var out = [];
@@ -5287,7 +5301,7 @@ var MakerJs;
                 var layer = data.layer || 'DIMENSIONS';
                 var blockName = '*D' + i;
                 var textPosition = data.textPosition ? MakerJs.point.add(data.textPosition, dim.offset) : null;
-                var textHeight = data.textHeight === undefined ? 2.5 : data.textHeight;
+                var textHeight = resolveDXFAnnotationTextHeight(data.textHeight, layer, layerOptions, defaultTextHeight);
                 function appendCommon(dimType, definitionPoint) {
                     out.push('  0', 'DIMENSION');
                     out.push('100', 'AcDbEntity');
@@ -5559,7 +5573,7 @@ var MakerJs;
                     type: 'label',
                     layer: layer,
                     text: text,
-                    textHeight: textHeight,
+                    textHeight: options.textHeight,
                     textPosition: textCenter,
                     textRotation: textRotation
                 }
@@ -10861,7 +10875,7 @@ var MakerJs;
                     point2: point2,
                     offset: offset,
                     text: options.text,
-                    textHeight: textHeight,
+                    textHeight: options.textHeight,
                     measuredValue: measuredValue,
                     textPosition: resolvedText.textPosition,
                     textRotation: resolvedText.textRotation
@@ -10923,7 +10937,7 @@ var MakerJs;
                 var textAnchorStart = MakerJs.point.add(resolvedText.textPosition, polar(resolvedText.textRotation + 180, textWidth / 2));
                 var textAnchorEnd = MakerJs.point.add(resolvedText.textPosition, polar(resolvedText.textRotation, textWidth / 2));
                 this.caption = {
-                    text: options.text || defaultText(measuredValue) + ' deg',
+                    text: options.text || defaultText(measuredValue),
                     anchor: new MakerJs.paths.Line(textAnchorStart, textAnchorEnd)
                 };
                 this.caption.anchor.layer = layer;
@@ -10936,7 +10950,7 @@ var MakerJs;
                     point2: point2Context,
                     radius: radius,
                     text: options.text,
-                    textHeight: textHeight,
+                    textHeight: options.textHeight,
                     measuredValue: measuredValue,
                     textPosition: resolvedText.textPosition,
                     textRotation: resolvedText.textRotation
@@ -10997,7 +11011,7 @@ var MakerJs;
                     radius: radius,
                     diameter: diameter,
                     text: resolvedOptions.text,
-                    textHeight: textHeight,
+                    textHeight: resolvedOptions.textHeight,
                     measuredValue: measuredValue,
                     textPosition: textPosition,
                     textRotation: textRotation
