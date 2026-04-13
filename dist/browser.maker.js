@@ -3933,6 +3933,457 @@ var MakerJs;
 })(MakerJs || (MakerJs = {}));
 var MakerJs;
 (function (MakerJs) {
+    var dimension;
+    (function (dimension) {
+        function polar(degrees, radius) {
+            return MakerJs.point.fromPolar(MakerJs.angle.toRadians(degrees), radius);
+        }
+        function normalizeAngle(a) {
+            while (a < 0)
+                a += 360;
+            while (a >= 360)
+                a -= 360;
+            return a;
+        }
+        function normalizeAxes(axis) {
+            var raw = axis === undefined ? ['width', 'height'] : (Array.isArray(axis) ? axis : [axis]);
+            var seen = {};
+            var axes = [];
+            raw.forEach(function (value) {
+                if ((value === 'width' || value === 'height') && !seen[value]) {
+                    seen[value] = true;
+                    axes.push(value);
+                }
+            });
+            return axes.length ? axes : ['width', 'height'];
+        }
+        function placePathName(pathContext, textOffset) {
+            var placement = {
+                textCenter: [0, 0],
+                textAngle: 0,
+                leaderStart: [0, 0],
+                leaderEnd: [0, 0]
+            };
+            switch (pathContext.type) {
+                case MakerJs.pathType.Line: {
+                    var line = pathContext;
+                    var center = MakerJs.point.middle(line);
+                    var a = MakerJs.angle.ofPointInDegrees(line.origin, line.end);
+                    var n = a + 90;
+                    placement.textCenter = MakerJs.point.add(center, polar(n, textOffset));
+                    placement.textAngle = a;
+                    placement.leaderStart = center;
+                    placement.leaderEnd = MakerJs.point.add(center, polar(n, textOffset * 0.7));
+                    return placement;
+                }
+                case MakerJs.pathType.Arc: {
+                    var arc = pathContext;
+                    var span = MakerJs.angle.ofArcSpan(arc);
+                    var midAngle = normalizeAngle(arc.startAngle + span / 2);
+                    var onArc = MakerJs.point.add(arc.origin, polar(midAngle, arc.radius));
+                    placement.textCenter = MakerJs.point.add(onArc, polar(midAngle, textOffset));
+                    placement.textAngle = normalizeAngle(midAngle + 90);
+                    placement.leaderStart = onArc;
+                    placement.leaderEnd = MakerJs.point.add(onArc, polar(midAngle, textOffset * 0.7));
+                    return placement;
+                }
+                case MakerJs.pathType.Circle: {
+                    var circle = pathContext;
+                    var a = 45;
+                    var onCircle = MakerJs.point.add(circle.origin, polar(a, circle.radius));
+                    placement.textCenter = MakerJs.point.add(onCircle, polar(a, textOffset));
+                    placement.textAngle = 0;
+                    placement.leaderStart = onCircle;
+                    placement.leaderEnd = MakerJs.point.add(onCircle, polar(a, textOffset * 0.7));
+                    return placement;
+                }
+                default: {
+                    var ext = MakerJs.measure.pathExtents(pathContext);
+                    var center = MakerJs.point.average(ext.low, ext.high);
+                    placement.textCenter = MakerJs.point.add(center, [0, textOffset]);
+                    placement.textAngle = 0;
+                    placement.leaderStart = center;
+                    placement.leaderEnd = MakerJs.point.add(center, [0, textOffset * 0.7]);
+                    return placement;
+                }
+            }
+        }
+        function buildPathNameModel(pathContext, label, options) {
+            var textOffset = options.textOffset === undefined ? 8 : options.textOffset;
+            var textSpan = options.textSpan === undefined ? 10 : options.textSpan;
+            var layer = options.layer || 'PATH_NAMES';
+            var alignToPath = options.alignToPath !== false;
+            var placement = placePathName(pathContext, textOffset);
+            var textAngle = alignToPath ? placement.textAngle : 0;
+            var a = MakerJs.point.add(placement.textCenter, polar(textAngle + 180, textSpan / 2));
+            var b = MakerJs.point.add(placement.textCenter, polar(textAngle, textSpan / 2));
+            var labelModel = {
+                paths: {
+                    leader: new MakerJs.paths.Line(placement.leaderStart, placement.leaderEnd)
+                },
+                caption: {
+                    text: label,
+                    anchor: new MakerJs.paths.Line(a, b)
+                },
+                layer: layer
+            };
+            labelModel.paths.leader.layer = layer;
+            labelModel.caption.anchor.layer = layer;
+            return labelModel;
+        }
+        function buildLabelModel(text, leaderStart, shelfStart, options) {
+            if (options === void 0) { options = {}; }
+            var layer = options.layer || 'DIMENSIONS';
+            var textHeight = options.textHeight === undefined ? 2.5 : options.textHeight;
+            var textRotation = options.textRotation === undefined ? 0 : options.textRotation;
+            var textWidth = options.textWidth === undefined ? Math.max(text.length * textHeight * 0.7, textHeight * 4) : options.textWidth;
+            var shelfLength = options.shelfLength === undefined ? textWidth + textHeight * 2 : options.shelfLength;
+            var arrowSize = options.arrowSize === undefined ? 2 : options.arrowSize;
+            var direction = options.textPosition && options.textPosition[0] < shelfStart[0] ? -1 : 1;
+            var shelfEnd = MakerJs.point.add(shelfStart, [direction * shelfLength, 0]);
+            var defaultTextPosition = MakerJs.point.add(MakerJs.point.average(shelfStart, shelfEnd), [0, -textHeight * 1.5]);
+            var textCenter = options.textPosition ? MakerJs.point.clone(options.textPosition) : defaultTextPosition;
+            var a = MakerJs.point.add(textCenter, polar(textRotation + 180, textWidth / 2));
+            var b = MakerJs.point.add(textCenter, polar(textRotation, textWidth / 2));
+            var arrowAngle = MakerJs.angle.ofPointInDegrees(leaderStart, shelfStart);
+            var spread = 22;
+            var arrowLeft = MakerJs.point.add(leaderStart, polar(arrowAngle + spread, arrowSize));
+            var arrowRight = MakerJs.point.add(leaderStart, polar(arrowAngle - spread, arrowSize));
+            var labelModel = {
+                paths: {
+                    leader: new MakerJs.paths.Line(leaderStart, shelfStart),
+                    shelf: new MakerJs.paths.Line(shelfStart, shelfEnd)
+                },
+                models: {
+                    arrow: {
+                        paths: {
+                            l1: new MakerJs.paths.Line(leaderStart, arrowLeft),
+                            l2: new MakerJs.paths.Line(leaderStart, arrowRight)
+                        }
+                    }
+                },
+                caption: {
+                    text: text,
+                    anchor: new MakerJs.paths.Line(a, b)
+                },
+                layer: layer,
+                labelData: {
+                    type: 'label',
+                    layer: layer,
+                    text: text,
+                    textHeight: options.textHeight,
+                    textPosition: textCenter,
+                    textRotation: textRotation
+                }
+            };
+            labelModel.paths.leader.layer = layer;
+            labelModel.paths.shelf.layer = layer;
+            labelModel.models.arrow.layer = layer;
+            labelModel.caption.anchor.layer = layer;
+            return labelModel;
+        }
+        function getDimensionId(modelContext, prefix, key) {
+            var baseKey = key || prefix;
+            return MakerJs.model.getSimilarModelId(modelContext, baseKey);
+        }
+        function addDimensionModel(modelContext, dimensionModel, defaultPrefix, key) {
+            var dimensionId = getDimensionId(modelContext, defaultPrefix, key);
+            MakerJs.model.addModel(modelContext, dimensionModel, dimensionId);
+            return dimensionModel;
+        }
+        function getSignedOffset(point1, point2, dimensionLinePoint) {
+            var a = MakerJs.angle.ofPointInDegrees(point1, point2);
+            var n = MakerJs.point.fromPolar(MakerJs.angle.toRadians(a + 90), 1);
+            var v = MakerJs.point.subtract(dimensionLinePoint, point1);
+            return v[0] * n[0] + v[1] * n[1];
+        }
+        function resolveLinearDimensionArguments(pathOrPoint1, point2OrOffset, offsetOrOptions, options) {
+            if (options === void 0) { options = {}; }
+            if (MakerJs.isPathLine(pathOrPoint1)) {
+                var line = pathOrPoint1;
+                return {
+                    point1: line.origin,
+                    point2: line.end,
+                    offset: point2OrOffset,
+                    options: (offsetOrOptions || {})
+                };
+            }
+            return {
+                point1: pathOrPoint1,
+                point2: point2OrOffset,
+                offset: offsetOrOptions,
+                options: options
+            };
+        }
+        function resolveLinearAtPointArguments(pathOrPoint1, point2OrDimensionLinePoint, dimensionLinePointOrOptions, options) {
+            if (options === void 0) { options = {}; }
+            if (MakerJs.isPathLine(pathOrPoint1)) {
+                var line = pathOrPoint1;
+                return {
+                    point1: line.origin,
+                    point2: line.end,
+                    dimensionLinePoint: point2OrDimensionLinePoint,
+                    options: (dimensionLinePointOrOptions || {})
+                };
+            }
+            return {
+                point1: pathOrPoint1,
+                point2: point2OrDimensionLinePoint,
+                dimensionLinePoint: dimensionLinePointOrOptions,
+                options: options
+            };
+        }
+        function resolveAngularDimensionArguments(centerPointOrArc, point1OrOptions, point2, radiusOrOptions, options) {
+            if (options === void 0) { options = {}; }
+            if (MakerJs.isPathArc(centerPointOrArc)) {
+                var arc = centerPointOrArc;
+                var arcPoints = MakerJs.point.fromArc(arc);
+                return {
+                    centerPoint: arc.origin,
+                    point1: arcPoints[0],
+                    point2: arcPoints[1],
+                    radius: arc.radius,
+                    options: (point1OrOptions || {})
+                };
+            }
+            return {
+                centerPoint: centerPointOrArc,
+                point1: point1OrOptions,
+                point2: point2,
+                radius: radiusOrOptions,
+                options: options
+            };
+        }
+        function resolveRadialDimensionArguments(centerPointOrPath, radiusPointOrOptions, options) {
+            if (options === void 0) { options = {}; }
+            if (MakerJs.isPathCircle(centerPointOrPath)) {
+                var circle = centerPointOrPath;
+                return {
+                    centerPoint: circle.origin,
+                    radiusPoint: MakerJs.point.add(circle.origin, [circle.radius, 0]),
+                    options: (radiusPointOrOptions || {})
+                };
+            }
+            if (MakerJs.isPathArc(centerPointOrPath)) {
+                var arc = centerPointOrPath;
+                var midAngle = arc.startAngle + MakerJs.angle.ofArcSpan(arc) / 2;
+                return {
+                    centerPoint: arc.origin,
+                    radiusPoint: MakerJs.point.add(arc.origin, polar(midAngle, arc.radius)),
+                    options: (radiusPointOrOptions || {})
+                };
+            }
+            return {
+                centerPoint: centerPointOrPath,
+                radiusPoint: radiusPointOrOptions,
+                options: options
+            };
+        }
+        function addLinear(modelContext, pathOrPoint1, point2OrOffset, offsetOrOptions, options) {
+            if (options === void 0) { options = {}; }
+            var resolved = resolveLinearDimensionArguments(pathOrPoint1, point2OrOffset, offsetOrOptions, options);
+            return addDimensionModel(modelContext, new MakerJs.models.LinearDimension(resolved.point1, resolved.point2, resolved.offset, resolved.options), 'dimL', resolved.options.key);
+        }
+        dimension.addLinear = addLinear;
+        function addLinearAtPoint(modelContext, pathOrPoint1, point2OrDimensionLinePoint, dimensionLinePointOrOptions, options) {
+            if (options === void 0) { options = {}; }
+            var resolved = resolveLinearAtPointArguments(pathOrPoint1, point2OrDimensionLinePoint, dimensionLinePointOrOptions, options);
+            var offset = getSignedOffset(resolved.point1, resolved.point2, resolved.dimensionLinePoint);
+            var dim = new MakerJs.models.LinearDimension(resolved.point1, resolved.point2, offset, resolved.options);
+            var baseAngle = MakerJs.angle.ofPointInDegrees(resolved.point1, resolved.point2);
+            dim.dimensionData.dimensionAngle = baseAngle;
+            dim.dimensionData.textRotation = resolved.options.textRotation === undefined ? baseAngle : resolved.options.textRotation;
+            return addDimensionModel(modelContext, dim, 'dimP', resolved.options.key);
+        }
+        dimension.addLinearAtPoint = addLinearAtPoint;
+        /**
+         * Create horizontal / vertical dimensions for a model's overall extents without mutating the source model.
+         */
+        function createModelExtentsDimensionModel(sourceModel, options) {
+            if (options === void 0) { options = {}; }
+            var ext = MakerJs.measure.modelExtents(sourceModel);
+            if (!ext)
+                return null;
+            var axes = normalizeAxes(options.axis);
+            var container = { models: {} };
+            var sharedOffset = options.offset === undefined ? 10 : options.offset;
+            var horizontalOffset = options.horizontalOffset === undefined ? sharedOffset : options.horizontalOffset;
+            var verticalOffset = options.verticalOffset === undefined ? sharedOffset : options.verticalOffset;
+            var pTopLeft = [ext.low[0], ext.high[1]];
+            var pTopRight = [ext.high[0], ext.high[1]];
+            var pRightBottom = [ext.high[0], ext.low[1]];
+            var pRightTop = [ext.high[0], ext.high[1]];
+            var baseKey = options.key || 'dimExtents';
+            if (axes.indexOf('width') >= 0) {
+                var horizontalOptions = MakerJs.extendObject({}, options);
+                horizontalOptions.key = baseKey + '_h';
+                horizontalOptions.layer = options.horizontalLayer || (options.layer ? options.layer + '_H' : 'DIMENSIONS');
+                if (options.horizontalText) {
+                    horizontalOptions.text = options.horizontalText;
+                }
+                addLinearAtPoint(container, pTopLeft, pTopRight, [ext.low[0], ext.high[1] + horizontalOffset], horizontalOptions);
+            }
+            if (axes.indexOf('height') >= 0) {
+                var verticalOptions = MakerJs.extendObject({}, options);
+                verticalOptions.key = baseKey + '_v';
+                verticalOptions.layer = options.verticalLayer || (options.layer ? options.layer + '_V' : 'DIMENSIONS');
+                if (options.verticalText) {
+                    verticalOptions.text = options.verticalText;
+                }
+                addLinearAtPoint(container, pRightBottom, pRightTop, [ext.high[0] + verticalOffset, ext.low[1]], verticalOptions);
+            }
+            return container;
+        }
+        dimension.createModelExtentsDimensionModel = createModelExtentsDimensionModel;
+        /**
+         * Auto-dimension a model by its extents.
+         * Creates one horizontal and one vertical dimension based on model bounds.
+         */
+        function addModelExtentsDimensions(modelContext, options) {
+            if (options === void 0) { options = {}; }
+            var ext = MakerJs.measure.modelExtents(modelContext);
+            if (!ext)
+                return null;
+            var axes = normalizeAxes(options.axis);
+            var sharedOffset = options.offset === undefined ? 10 : options.offset;
+            var horizontalOffset = options.horizontalOffset === undefined ? sharedOffset : options.horizontalOffset;
+            var verticalOffset = options.verticalOffset === undefined ? sharedOffset : options.verticalOffset;
+            var pTopLeft = [ext.low[0], ext.high[1]];
+            var pTopRight = [ext.high[0], ext.high[1]];
+            var pRightBottom = [ext.high[0], ext.low[1]];
+            var pRightTop = [ext.high[0], ext.high[1]];
+            var baseKey = options.key || 'dimExtents';
+            var horizontal = null;
+            var vertical = null;
+            if (axes.indexOf('width') >= 0) {
+                var horizontalOptions = MakerJs.extendObject({}, options);
+                horizontalOptions.key = baseKey + '_h';
+                horizontalOptions.layer = options.horizontalLayer || (options.layer ? options.layer + '_H' : 'DIMENSIONS');
+                if (options.horizontalText) {
+                    horizontalOptions.text = options.horizontalText;
+                }
+                horizontal = addLinearAtPoint(modelContext, pTopLeft, pTopRight, [ext.low[0], ext.high[1] + horizontalOffset], horizontalOptions);
+                var horizontalData = horizontal.dimensionData;
+                horizontalData.dimensionAngle = 0;
+                horizontalData.textRotation = horizontalOptions.textRotation === undefined ? 0 : horizontalOptions.textRotation;
+            }
+            if (axes.indexOf('height') >= 0) {
+                var verticalOptions = MakerJs.extendObject({}, options);
+                verticalOptions.key = baseKey + '_v';
+                verticalOptions.layer = options.verticalLayer || (options.layer ? options.layer + '_V' : 'DIMENSIONS');
+                if (options.verticalText) {
+                    verticalOptions.text = options.verticalText;
+                }
+                vertical = addLinearAtPoint(modelContext, pRightBottom, pRightTop, [ext.high[0] + verticalOffset, ext.low[1]], verticalOptions);
+                var verticalData = vertical.dimensionData;
+                verticalData.dimensionAngle = 90;
+                verticalData.textRotation = verticalOptions.textRotation === undefined ? 90 : verticalOptions.textRotation;
+            }
+            return { horizontal: horizontal, vertical: vertical };
+        }
+        dimension.addModelExtentsDimensions = addModelExtentsDimensions;
+        function getAutoDimensionPrefix(source, type) {
+            if (type === 'diameter')
+                return 'dimD';
+            if (type === 'radial' || MakerJs.isPathCircle(source))
+                return 'dimR';
+            if (type === 'extents')
+                return 'dimExtents';
+            if (type === 'angular' || MakerJs.isPathArc(source))
+                return 'dimAngular';
+            if (type === 'aligned')
+                return 'dimAligned';
+            return 'dimL';
+        }
+        function create(source, offsetOrOptions, options) {
+            if (options === void 0) { options = {}; }
+            return MakerJs.models.Dimension.create(source, offsetOrOptions, options);
+        }
+        dimension.create = create;
+        function add(modelContext, source, offsetOrOptions, options) {
+            if (options === void 0) { options = {}; }
+            var dimensionModel = create(source, offsetOrOptions, options);
+            if (!dimensionModel)
+                return null;
+            var resolvedOptions = ((typeof offsetOrOptions === 'number' ? options : (offsetOrOptions || options)) || {});
+            return addDimensionModel(modelContext, dimensionModel, getAutoDimensionPrefix(source, resolvedOptions.type), resolvedOptions.key);
+        }
+        dimension.add = add;
+        function addHorizontal(modelContext, pathOrPoint1, point2OrOffset, offsetOrOptions, options) {
+            if (options === void 0) { options = {}; }
+            var resolved = resolveLinearDimensionArguments(pathOrPoint1, point2OrOffset, offsetOrOptions, options);
+            var a = [resolved.point1[0], resolved.point1[1]];
+            var b = [resolved.point2[0], resolved.point1[1]];
+            var dim = new MakerJs.models.AlignedDimension(a, b, resolved.offset, resolved.options);
+            dim.dimensionData.dimensionAngle = 0;
+            dim.dimensionData.textRotation = resolved.options.textRotation === undefined ? 0 : resolved.options.textRotation;
+            return addDimensionModel(modelContext, dim, 'dimH', resolved.options.key);
+        }
+        dimension.addHorizontal = addHorizontal;
+        function addVertical(modelContext, pathOrPoint1, point2OrOffset, offsetOrOptions, options) {
+            if (options === void 0) { options = {}; }
+            var resolved = resolveLinearDimensionArguments(pathOrPoint1, point2OrOffset, offsetOrOptions, options);
+            var a = [resolved.point1[0], resolved.point1[1]];
+            var b = [resolved.point1[0], resolved.point2[1]];
+            var dim = new MakerJs.models.AlignedDimension(a, b, resolved.offset, resolved.options);
+            dim.dimensionData.dimensionAngle = 90;
+            dim.dimensionData.textRotation = resolved.options.textRotation === undefined ? 90 : resolved.options.textRotation;
+            return addDimensionModel(modelContext, dim, 'dimV', resolved.options.key);
+        }
+        dimension.addVertical = addVertical;
+        function addAngular(modelContext, centerPointOrArc, point1OrOptions, point2, radiusOrOptions, options) {
+            if (options === void 0) { options = {}; }
+            var resolved = resolveAngularDimensionArguments(centerPointOrArc, point1OrOptions, point2, radiusOrOptions, options);
+            return addDimensionModel(modelContext, new MakerJs.models.AngularDimension(resolved.centerPoint, resolved.point1, resolved.point2, resolved.radius, resolved.options), 'dimA', resolved.options.key);
+        }
+        dimension.addAngular = addAngular;
+        function addRadial(modelContext, centerPointOrPath, radiusPointOrOptions, options) {
+            if (options === void 0) { options = {}; }
+            var resolved = resolveRadialDimensionArguments(centerPointOrPath, radiusPointOrOptions, options);
+            return addDimensionModel(modelContext, new MakerJs.models.RadialDimension(resolved.centerPoint, resolved.radiusPoint, resolved.options), 'dimR', resolved.options.key);
+        }
+        dimension.addRadial = addRadial;
+        function addDiameter(modelContext, centerPointOrPath, radiusPointOrOptions, options) {
+            if (options === void 0) { options = {}; }
+            var resolved = resolveRadialDimensionArguments(centerPointOrPath, radiusPointOrOptions, options);
+            var diameterOptions = MakerJs.extendObject({}, resolved.options);
+            return addDimensionModel(modelContext, new MakerJs.models.RadialDimension(resolved.centerPoint, resolved.radiusPoint, diameterOptions, true), 'dimD', resolved.options.key);
+        }
+        dimension.addDiameter = addDiameter;
+        function addPathNames(modelContext, options) {
+            if (options === void 0) { options = {}; }
+            var labelContainer = {
+                models: {}
+            };
+            var i = 0;
+            MakerJs.model.walk(modelContext, {
+                onPath: function (walkedPath) {
+                    var absPath = MakerJs.path.clone(walkedPath.pathContext, walkedPath.offset);
+                    var label = options.includeRouteKey ? walkedPath.routeKey : walkedPath.pathId;
+                    labelContainer.models['name_' + i++] = buildPathNameModel(absPath, label, options);
+                }
+            });
+            if (i === 0)
+                return null;
+            var key = options.key || 'pathNames';
+            var id = MakerJs.model.getSimilarModelId(modelContext, key);
+            MakerJs.model.addModel(modelContext, labelContainer, id);
+            return labelContainer;
+        }
+        dimension.addPathNames = addPathNames;
+        /**
+         * Add a text label / callout with a leader and horizontal shelf.
+         * `leaderStart` controls where the line begins and `shelfStart` controls where the text shelf starts.
+         */
+        function labels(modelContext, text, leaderStart, shelfStart, options) {
+            if (options === void 0) { options = {}; }
+            return addDimensionModel(modelContext, buildLabelModel(text, leaderStart, shelfStart, options), 'label', options.key);
+        }
+        dimension.labels = labels;
+    })(dimension = MakerJs.dimension || (MakerJs.dimension = {}));
+})(MakerJs || (MakerJs = {}));
+var MakerJs;
+(function (MakerJs) {
     var measure;
     (function (measure) {
         /**
@@ -5038,29 +5489,14 @@ var MakerJs;
                 header: {},
                 tables: {}
             };
+            var dimensionBlocks = [];
             MakerJs.extendObject(opts, options);
-            var sourceModel;
-            if (MakerJs.isModel(itemToExport)) {
-                sourceModel = itemToExport;
-                if (sourceModel.exporterOptions) {
-                    MakerJs.extendObject(opts, sourceModel.exporterOptions['toDXF']);
-                }
-            }
-            // Export Maker.js dimensions as native DXF DIMENSION entities by default.
-            // Set useNativeDimensions to false for broader viewer compatibility.
-            var useNativeDimensions = opts.useNativeDimensions !== false;
-            var collectedDimensions = [];
-            var collectedLabels = [];
-            if (useNativeDimensions && MakerJs.isModel(itemToExport)) {
-                var originalModel = itemToExport;
-                collectedDimensions = collectDXFDimensions(originalModel);
-                collectedLabels = collectDXFLabels(originalModel);
-                if (collectedDimensions.length || collectedLabels.length) {
-                    itemToExport = MakerJs.cloneObject(originalModel);
-                    removeDimensionModels(itemToExport);
-                }
-            }
             var modelToExport = itemToExport;
+            if (MakerJs.isModel(itemToExport)) {
+                if (modelToExport.exporterOptions) {
+                    MakerJs.extendObject(opts, modelToExport.exporterOptions['toDXF']);
+                }
+            }
             // -------------------------
             // ✅ Unicode / Japanese text support
             // Encode non-ASCII as AutoCAD-style \U+XXXX
@@ -5126,6 +5562,36 @@ var MakerJs;
                 return layerId;
             }
             var map = {};
+            function getDimensionOwner(routeKey) {
+                for (var i = 0; i < dimensionBlocks.length; i++) {
+                    var block = dimensionBlocks[i];
+                    if (routeKey === block.routeKey || routeKey.indexOf(block.routeKey + '.') === 0) {
+                        return block;
+                    }
+                }
+                return null;
+            }
+            function collectCaptionsWithRoute(modelContext) {
+                var captions = [];
+                function tryAddCaption(m, offset, layer, routeKey) {
+                    if (m.caption) {
+                        var modelOffset = MakerJs.point.add((m.origin || MakerJs.point.zero()), offset);
+                        captions.push({
+                            text: m.caption.text,
+                            anchor: MakerJs.path.clone(m.caption.anchor, modelOffset),
+                            layer: m.caption.anchor.layer || layer || '0',
+                            routeKey: routeKey
+                        });
+                    }
+                }
+                tryAddCaption(modelContext, modelContext.origin || MakerJs.point.zero(), modelContext.layer, '');
+                MakerJs.model.walk(modelContext, {
+                    afterChildWalk: function (walkedModel) {
+                        tryAddCaption(walkedModel.childModel, walkedModel.offset, walkedModel.layer, walkedModel.routeKey);
+                    }
+                });
+                return captions;
+            }
             map[MakerJs.pathType.Line] = function (line, offset, layer) {
                 var layerId = defaultLayer(line, layer);
                 var lineEntity = {
@@ -5294,9 +5760,6 @@ var MakerJs;
                 };
                 layerIds.forEach(function (layerId) {
                     var layerOptions = colorLayerOptions(layerId);
-                    if (!layerOptions && (collectedDimensions.length || collectedLabels.length)) {
-                        layerOptions = { color: 7 };
-                    }
                     if (layerOptions) {
                         layerTable.layers[layerId] = layerOut(layerId, layerOptions.color);
                     }
@@ -5322,11 +5785,6 @@ var MakerJs;
                     var units = dxfUnit[opts.units];
                     doc.header["$INSUNITS"] = units;
                 }
-                if (collectedDimensions.length || collectedLabels.length) {
-                    doc.header["$ACADVER"] = 'AC1021';
-                    doc.header["$DIMSTYLE"] = 'STANDARD';
-                    doc.header["$DIMASSOC"] = 1;
-                }
                 // Optional: Some CADs behave better when codepage is declared.
                 // Our header writer supports strings (group code 3) below.
                 // doc.header["$DWGCODEPAGE"] = (opts as any).codePage || "ANSI_932"; // Shift-JIS
@@ -5337,11 +5795,32 @@ var MakerJs;
                 walkedPaths.forEach(function (walkedPath) {
                     var fn = map[walkedPath.pathContext.type];
                     if (fn) {
-                        var entity = fn(walkedPath.pathContext, walkedPath.offset, walkedPath.layer);
-                        entityArray.push(entity);
+                        var dimensionOwner = getDimensionOwner(walkedPath.routeKey);
+                        if (dimensionOwner) {
+                            var localOffset = MakerJs.point.subtract(walkedPath.offset, dimensionOwner.insertOffset);
+                            var entity = fn(walkedPath.pathContext, localOffset, walkedPath.layer);
+                            dimensionOwner.entities.push(entity);
+                        }
+                        else {
+                            var entity = fn(walkedPath.pathContext, walkedPath.offset, walkedPath.layer);
+                            entityArray.push(entity);
+                        }
                     }
                 });
-                entityArray.push.apply(entityArray, captions.map(text));
+                captions.forEach(function (caption) {
+                    var dimensionOwner = getDimensionOwner(caption.routeKey);
+                    if (dimensionOwner) {
+                        var localCaption = {
+                            text: caption.text,
+                            layer: caption.layer,
+                            anchor: new MakerJs.paths.Line(MakerJs.point.subtract(caption.anchor.origin, dimensionOwner.insertOffset), MakerJs.point.subtract(caption.anchor.end, dimensionOwner.insertOffset))
+                        };
+                        dimensionOwner.entities.push(text(localCaption));
+                    }
+                    else {
+                        entityArray.push(text(caption));
+                    }
+                });
             }
             //fixup options
             if (!opts.units) {
@@ -5353,6 +5832,36 @@ var MakerJs;
             //also pass back to options parameter
             MakerJs.extendObject(options, opts);
             //begin dxf output
+            if (MakerJs.isModel(modelToExport)) {
+                var dimensionBlockIndex_1 = 0;
+                MakerJs.model.walk(modelToExport, {
+                    beforeChildWalk: function (walkedModel) {
+                        var childModel = walkedModel.childModel;
+                        if (childModel && (childModel.dimensionData || childModel.labelData)) {
+                            var insertOffset = MakerJs.point.add(walkedModel.offset, childModel.origin || [0, 0]);
+                            var layerId = walkedModel.layer || '0';
+                            var blockName = 'MKR_DIM_' + (++dimensionBlockIndex_1);
+                            var blockInfo = {
+                                routeKey: walkedModel.routeKey,
+                                blockName: blockName,
+                                insertOffset: insertOffset,
+                                entities: [],
+                                layer: layerId
+                            };
+                            dimensionBlocks.push(blockInfo);
+                            addLayerId(layerId);
+                            doc.entities.push({
+                                type: 'INSERT',
+                                name: blockName,
+                                layer: layerId,
+                                x: MakerJs.round(insertOffset[0], opts.accuracy),
+                                y: MakerJs.round(insertOffset[1], opts.accuracy)
+                            });
+                        }
+                        return true;
+                    }
+                });
+            }
             var chainsOnLayers = [];
             var walkedPaths = [];
             if (opts.usePOLYLINE) {
@@ -5378,38 +5887,23 @@ var MakerJs;
                 };
                 MakerJs.model.walk(modelToExport, walkOptions);
             }
-            entities(walkedPaths, chainsOnLayers, MakerJs.model.getAllCaptionsOffset(modelToExport));
+            entities(walkedPaths, chainsOnLayers, collectCaptionsWithRoute(modelToExport));
             if (opts.texts && Array.isArray(opts.texts)) {
                 opts.texts.forEach(function (t) {
                     doc.entities.push(textFromOptions(t));
                 });
             }
-            if (collectedDimensions.length) {
-                collectedDimensions.forEach(function (dim) { return addLayerId(dim.data.layer || 'DIMENSIONS'); });
-            }
-            if (collectedLabels.length) {
-                collectedLabels.forEach(function (label) { return addLayerId(label.data.layer || 'DIMENSIONS'); });
-            }
             header();
             lineTypesOut();
             layersOut();
             stylesOut(); // ✅ add STYLE table
-            var dxfStr = outputDocument(doc);
-            if (collectedDimensions.length || collectedLabels.length) {
-                var hasExplicitGlobalFontSize = options.fontSize !== undefined || !!(sourceModel && sourceModel.exporterOptions && sourceModel.exporterOptions['toDXF'] && sourceModel.exporterOptions['toDXF'].fontSize !== undefined);
-                var defaultDimensionTextHeight = hasExplicitGlobalFontSize ? opts.fontSize : 2.5;
-                var dxfWithTables = insertDXFDimensionTables(dxfStr, buildDXFDimensionTables(collectedDimensions, collectedLabels));
-                var dxfWithBlocks = insertDXFBlocks(dxfWithTables, buildDXFDimensionBlocks(collectedDimensions, collectedLabels, opts.layerOptions, defaultDimensionTextHeight));
-                var annotationEntities = buildDXFDimensionEntities(collectedDimensions, opts.layerOptions, defaultDimensionTextHeight) + buildDXFLabelEntities(collectedLabels);
-                return insertDXFDimensionEntities(dxfWithBlocks, annotationEntities);
-            }
-            return dxfStr;
+            return outputDocument(doc, dimensionBlocks);
         }
         exporter.toDXF = toDXF;
         /**
          * @private
          */
-        function outputDocument(doc) {
+        function outputDocument(doc, dimensionBlocks) {
             var dxf = [];
             function append() {
                 var values = [];
@@ -5459,6 +5953,9 @@ var MakerJs;
             map["TEXT"] = function (text) {
                 append("0", "TEXT", "10", text.startPoint.x, "20", text.startPoint.y, "11", text.endPoint.x, "21", text.endPoint.y, "40", text.textHeight, "1", text.text, "50", text.rotation, "8", text.layer, "7", text.styleName || "STANDARD", // ✅
                 "72", text.halign, "73", text.valign);
+            };
+            map["INSERT"] = function (insert) {
+                append("0", "INSERT", "8", insert.layer || "0", "2", insert.name, "10", insert.x || 0, "20", insert.y || 0);
             };
             function section(sectionFn) {
                 append("0", "SECTION");
@@ -5538,304 +6035,28 @@ var MakerJs;
                     }
                 });
             }
+            function blocks() {
+                append("2", "BLOCKS");
+                dimensionBlocks.forEach(function (block) {
+                    append("0", "BLOCK", "8", block.layer || "0", "2", block.blockName, "70", "0", "10", 0, "20", 0, "3", block.blockName, "1", "");
+                    block.entities.forEach(function (entity) {
+                        var fn = map[entity.type];
+                        if (fn) {
+                            fn(entity);
+                        }
+                    });
+                    append("0", "ENDBLK", "8", block.layer || "0");
+                });
+            }
             //begin dxf output
             section(header);
             section(tables);
+            if (dimensionBlocks.length) {
+                section(blocks);
+            }
             section(function () { return entities(doc.entities); });
             append("0", "EOF");
             return dxf.join('\n');
-        }
-        // ---------------------------------------------------------------------------
-        // Private helpers for dimension entity injection
-        // ---------------------------------------------------------------------------
-        function removeDimensionModels(modelContext) {
-            if (!modelContext || !modelContext.models)
-                return;
-            for (var id in modelContext.models) {
-                var child = modelContext.models[id];
-                if (!child)
-                    continue;
-                if (child.dimensionData || child.labelData) {
-                    delete modelContext.models[id];
-                }
-                else {
-                    removeDimensionModels(child);
-                }
-            }
-        }
-        function collectDXFDimensions(modelToExport) {
-            var dimensions = [];
-            var tryAdd = function (m, offset) {
-                if (m && m.dimensionData) {
-                    dimensions.push({ data: m.dimensionData, offset: offset, model: m });
-                }
-            };
-            tryAdd(modelToExport, modelToExport.origin || MakerJs.point.zero());
-            MakerJs.model.walk(modelToExport, {
-                afterChildWalk: function (walkedModel) {
-                    tryAdd(walkedModel.childModel, MakerJs.point.add(walkedModel.childModel.origin || MakerJs.point.zero(), walkedModel.offset));
-                }
-            });
-            return dimensions;
-        }
-        function collectDXFLabels(modelToExport) {
-            var labels = [];
-            var tryAdd = function (m, offset) {
-                if (m && m.labelData) {
-                    labels.push({ data: m.labelData, offset: offset, model: m });
-                }
-            };
-            tryAdd(modelToExport, modelToExport.origin || MakerJs.point.zero());
-            MakerJs.model.walk(modelToExport, {
-                afterChildWalk: function (walkedModel) {
-                    tryAdd(walkedModel.childModel, MakerJs.point.add(walkedModel.childModel.origin || MakerJs.point.zero(), walkedModel.offset));
-                }
-            });
-            return labels;
-        }
-        function dxfValue(value) {
-            if (!isFinite(value))
-                return '0';
-            return (Math.round(value * 1000000) / 1000000).toString();
-        }
-        function appendDXFPath(pathContext, offset, out, layer) {
-            switch (pathContext.type) {
-                case MakerJs.pathType.Line: {
-                    var line = pathContext;
-                    out.push('  0', 'LINE', '  8', layer, ' 10', dxfValue(line.origin[0] + offset[0]), ' 20', dxfValue(line.origin[1] + offset[1]), ' 11', dxfValue(line.end[0] + offset[0]), ' 21', dxfValue(line.end[1] + offset[1]));
-                    return;
-                }
-                case MakerJs.pathType.Circle: {
-                    var circle = pathContext;
-                    out.push('  0', 'CIRCLE', '  8', layer, ' 10', dxfValue(circle.origin[0] + offset[0]), ' 20', dxfValue(circle.origin[1] + offset[1]), ' 40', dxfValue(circle.radius));
-                    return;
-                }
-                case MakerJs.pathType.Arc: {
-                    var arc = pathContext;
-                    out.push('  0', 'ARC', '  8', layer, ' 10', dxfValue(arc.origin[0] + offset[0]), ' 20', dxfValue(arc.origin[1] + offset[1]), ' 40', dxfValue(arc.radius), ' 50', dxfValue(arc.startAngle), ' 51', dxfValue(arc.endAngle));
-                    return;
-                }
-            }
-        }
-        function resolveDXFAnnotationTextHeight(explicitTextHeight, layer, layerOptions, defaultTextHeight) {
-            if (defaultTextHeight === void 0) { defaultTextHeight = 2.5; }
-            if (explicitTextHeight !== undefined)
-                return explicitTextHeight;
-            var layerOption = layerOptions && layerOptions[layer];
-            if (layerOption && layerOption.fontSize !== undefined)
-                return layerOption.fontSize;
-            return defaultTextHeight;
-        }
-        function appendDXFCaption(caption, offset, out, layer, textHeight) {
-            var center = MakerJs.point.middle(caption.anchor);
-            var x = center[0] + offset[0];
-            var y = center[1] + offset[1];
-            out.push('  0', 'TEXT', '  8', layer, ' 10', dxfValue(x), ' 20', dxfValue(y), ' 11', dxfValue(x), ' 21', dxfValue(y), ' 40', dxfValue(textHeight), '  1', caption.text || '', ' 50', dxfValue(MakerJs.angle.ofPointInDegrees(caption.anchor.origin, caption.anchor.end)), '  7', 'STANDARD', ' 72', '4', ' 73', '0');
-        }
-        function appendDXFDimensionGeometry(modelContext, offset, out, parentLayer, textHeight) {
-            if (!modelContext)
-                return;
-            var modelOffset = MakerJs.point.add(offset, modelContext.origin || MakerJs.point.zero());
-            var layer = modelContext.layer || parentLayer || '0';
-            if (modelContext.paths) {
-                for (var id in modelContext.paths) {
-                    var pathContext = modelContext.paths[id];
-                    if (!pathContext)
-                        continue;
-                    appendDXFPath(pathContext, modelOffset, out, pathContext.layer || layer);
-                }
-            }
-            if (modelContext.caption && modelContext.caption.anchor) {
-                appendDXFCaption(modelContext.caption, modelOffset, out, modelContext.caption.anchor.layer || layer, textHeight);
-            }
-            if (modelContext.models) {
-                for (var id in modelContext.models) {
-                    appendDXFDimensionGeometry(modelContext.models[id], modelOffset, out, layer, textHeight);
-                }
-            }
-        }
-        function buildDXFDimensionTables(dimensions, labels) {
-            if (labels === void 0) { labels = []; }
-            var out = [
-                '0', 'TABLE',
-                '2', 'BLOCK_RECORD',
-                '70', (dimensions.length + labels.length + 2).toString(),
-                '0', 'BLOCK_RECORD',
-                '2', '*Model_Space',
-                '70', '0',
-                '0', 'BLOCK_RECORD',
-                '2', '*Paper_Space',
-                '70', '0'
-            ];
-            dimensions.forEach(function (dim, i) {
-                out.push('0', 'BLOCK_RECORD', '2', '*D' + i, '70', '0');
-            });
-            labels.forEach(function (label, i) {
-                out.push('0', 'BLOCK_RECORD', '2', 'LABEL_' + i, '70', '0');
-            });
-            out.push('0', 'ENDTAB', '0', 'TABLE', '2', 'DIMSTYLE', '70', '1', '0', 'DIMSTYLE', '2', 'STANDARD', '70', '0', '40', '1', '41', '2.5', '42', '0.625', '44', '1.25', '140', '2.5', '0', 'ENDTAB');
-            return out.join('\n') + '\n';
-        }
-        function buildDXFDimensionBlocks(dimensions, labels, layerOptions, defaultTextHeight) {
-            if (labels === void 0) { labels = []; }
-            if (defaultTextHeight === void 0) { defaultTextHeight = 2.5; }
-            if (!dimensions.length && !labels.length)
-                return '';
-            var out = [];
-            function appendBlockHeader(blockName, flags) {
-                out.push('  0', 'BLOCK', '100', 'AcDbEntity', '  8', '0', '100', 'AcDbBlockBegin', '  2', blockName, ' 70', flags, ' 10', '0', ' 20', '0', ' 30', '0', '  3', blockName, '  1', '');
-            }
-            function appendBlockFooter() {
-                out.push('  0', 'ENDBLK', '100', 'AcDbEntity', '  8', '0', '100', 'AcDbBlockEnd');
-            }
-            appendBlockHeader('*Model_Space', '0');
-            appendBlockFooter();
-            appendBlockHeader('*Paper_Space', '0');
-            appendBlockFooter();
-            dimensions.forEach(function (dim, i) {
-                var blockName = '*D' + i;
-                var layer = dim.data.layer || 'DIMENSIONS';
-                var textHeight = resolveDXFAnnotationTextHeight(dim.data.textHeight, layer, layerOptions, defaultTextHeight);
-                appendBlockHeader(blockName, '1');
-                appendDXFDimensionGeometry(dim.model, dim.offset, out, layer, textHeight);
-                appendBlockFooter();
-            });
-            labels.forEach(function (label, i) {
-                var blockName = 'LABEL_' + i;
-                var layer = label.data.layer || 'DIMENSIONS';
-                var textHeight = resolveDXFAnnotationTextHeight(label.data.textHeight, layer, layerOptions, defaultTextHeight);
-                appendBlockHeader(blockName, '0');
-                appendDXFDimensionGeometry(label.model, label.offset, out, layer, textHeight);
-                appendBlockFooter();
-            });
-            return out.join('\n') + '\n';
-        }
-        function buildDXFDimensionEntities(dimensions, layerOptions, defaultTextHeight) {
-            if (defaultTextHeight === void 0) { defaultTextHeight = 2.5; }
-            if (!dimensions.length)
-                return '';
-            var out = [];
-            var styleName = 'STANDARD';
-            dimensions.forEach(function (dim, i) {
-                var data = dim.data;
-                var layer = data.layer || 'DIMENSIONS';
-                var blockName = '*D' + i;
-                var textPosition = data.textPosition ? MakerJs.point.add(data.textPosition, dim.offset) : null;
-                var textHeight = resolveDXFAnnotationTextHeight(data.textHeight, layer, layerOptions, defaultTextHeight);
-                function appendCommon(dimType, definitionPoint) {
-                    out.push('  0', 'DIMENSION');
-                    out.push('100', 'AcDbEntity');
-                    out.push('  8', layer);
-                    out.push('100', 'AcDbDimension');
-                    out.push('  2', blockName);
-                    out.push(' 10', dxfValue(definitionPoint[0]), ' 20', dxfValue(definitionPoint[1]), ' 30', '0');
-                    if (textPosition) {
-                        out.push(' 11', dxfValue(textPosition[0]), ' 21', dxfValue(textPosition[1]), ' 31', '0');
-                    }
-                    out.push(' 70', (32 + dimType).toString());
-                    out.push('  1', data.text || '');
-                    out.push(' 71', '5');
-                    out.push(' 72', '0');
-                    out.push('  3', styleName);
-                    out.push(' 53', dxfValue(data.textRotation || 0));
-                    out.push('210', '0', '220', '0', '230', '1');
-                    out.push('140', dxfValue(textHeight));
-                    if (data.measuredValue !== undefined) {
-                        out.push(' 42', dxfValue(data.measuredValue));
-                    }
-                }
-                switch (data.type) {
-                    case 'linear':
-                    case 'aligned': {
-                        var p1 = MakerJs.point.add(data.point1, dim.offset);
-                        var p2 = MakerJs.point.add(data.point2, dim.offset);
-                        var dimAng = data.dimensionAngle === undefined ? MakerJs.angle.ofPointInDegrees(p1, p2) : data.dimensionAngle;
-                        var dimPt = MakerJs.point.add(p1, MakerJs.point.fromPolar(MakerJs.angle.toRadians(dimAng + 90), data.offset));
-                        appendCommon(0, dimPt);
-                        out.push('100', 'AcDbAlignedDimension');
-                        out.push(' 13', dxfValue(p1[0]), ' 23', dxfValue(p1[1]), ' 33', '0');
-                        out.push(' 14', dxfValue(p2[0]), ' 24', dxfValue(p2[1]), ' 34', '0');
-                        out.push('100', 'AcDbRotatedDimension');
-                        out.push(' 50', dxfValue(dimAng));
-                        break;
-                    }
-                    case 'angular': {
-                        var center = MakerJs.point.add(data.centerPoint, dim.offset);
-                        var p1 = MakerJs.point.add(data.point1, dim.offset);
-                        var p2 = MakerJs.point.add(data.point2, dim.offset);
-                        var a1 = MakerJs.angle.ofPointInDegrees(center, p1);
-                        var a2 = MakerJs.angle.ofPointInDegrees(center, p2);
-                        if (a2 < a1)
-                            a2 += 360;
-                        var arcPoint = MakerJs.point.add(center, MakerJs.point.fromPolar(MakerJs.angle.toRadians(a1 + (a2 - a1) / 2), data.radius));
-                        appendCommon(2, p2);
-                        out.push('100', 'AcDb2LineAngularDimension');
-                        out.push(' 13', dxfValue(center[0]), ' 23', dxfValue(center[1]), ' 33', '0');
-                        out.push(' 14', dxfValue(p1[0]), ' 24', dxfValue(p1[1]), ' 34', '0');
-                        out.push(' 15', dxfValue(center[0]), ' 25', dxfValue(center[1]), ' 35', '0');
-                        out.push(' 16', dxfValue(arcPoint[0]), ' 26', dxfValue(arcPoint[1]), ' 36', '0');
-                        break;
-                    }
-                    case 'radial':
-                    case 'diameter': {
-                        var center = MakerJs.point.add(data.centerPoint, dim.offset);
-                        var radiusPoint = MakerJs.point.add(data.radiusPoint, dim.offset);
-                        var dimType = data.type === 'diameter' ? 3 : 4;
-                        appendCommon(dimType, center);
-                        out.push('100', data.type === 'diameter' ? 'AcDbDiametricDimension' : 'AcDbRadialDimension');
-                        out.push(' 15', dxfValue(radiusPoint[0]), ' 25', dxfValue(radiusPoint[1]), ' 35', '0');
-                        out.push(' 40', dxfValue(Math.max(3, textHeight * 1.2)));
-                        break;
-                    }
-                }
-            });
-            return out.join('\n') + '\n';
-        }
-        function buildDXFLabelEntities(labels) {
-            if (!labels.length)
-                return '';
-            var out = [];
-            labels.forEach(function (label, i) {
-                var layer = label.data.layer || 'DIMENSIONS';
-                out.push('  0', 'INSERT');
-                out.push('100', 'AcDbEntity');
-                out.push('  8', layer);
-                out.push('100', 'AcDbBlockReference');
-                out.push('  2', 'LABEL_' + i);
-                out.push(' 10', '0', ' 20', '0', ' 30', '0');
-                out.push(' 41', '1', ' 42', '1', ' 43', '1');
-                out.push(' 50', '0');
-                out.push('210', '0', '220', '0', '230', '1');
-            });
-            return out.join('\n') + '\n';
-        }
-        function insertDXFDimensionTables(dxfStr, tableEntries) {
-            if (!tableEntries)
-                return dxfStr;
-            var marker = '\n0\nENDSEC\n0\nSECTION\n2\nENTITIES';
-            var i = dxfStr.indexOf(marker);
-            if (i < 0)
-                return dxfStr;
-            return dxfStr.substring(0, i) + '\n' + tableEntries + dxfStr.substring(i + 1);
-        }
-        function insertDXFBlocks(dxfStr, blocks) {
-            if (!blocks)
-                return dxfStr;
-            var blockSection = '0\nSECTION\n2\nBLOCKS\n' + blocks + '0\nENDSEC';
-            var marker = '\n0\nSECTION\n2\nENTITIES';
-            var i = dxfStr.indexOf(marker);
-            if (i < 0)
-                return dxfStr + '\n' + blockSection;
-            return dxfStr.substring(0, i) + '\n' + blockSection + dxfStr.substring(i);
-        }
-        function insertDXFDimensionEntities(dxfStr, dimensionEntities) {
-            if (!dimensionEntities)
-                return dxfStr;
-            var marker = '\n0\nENDSEC';
-            var i = dxfStr.lastIndexOf(marker);
-            if (i < 0)
-                return dxfStr + '\n' + dimensionEntities;
-            return dxfStr.substring(0, i) + '\n' + dimensionEntities + dxfStr.substring(i + 1);
         }
         /**
          * @private
@@ -5852,457 +6073,6 @@ var MakerJs;
         dxfUnit[MakerJs.unitType.Centimeter] = 5;
         dxfUnit[MakerJs.unitType.Meter] = 6;
     })(exporter = MakerJs.exporter || (MakerJs.exporter = {}));
-})(MakerJs || (MakerJs = {}));
-var MakerJs;
-(function (MakerJs) {
-    var dimension;
-    (function (dimension) {
-        function polar(degrees, radius) {
-            return MakerJs.point.fromPolar(MakerJs.angle.toRadians(degrees), radius);
-        }
-        function normalizeAngle(a) {
-            while (a < 0)
-                a += 360;
-            while (a >= 360)
-                a -= 360;
-            return a;
-        }
-        function normalizeAxes(axis) {
-            var raw = axis === undefined ? ['width', 'height'] : (Array.isArray(axis) ? axis : [axis]);
-            var seen = {};
-            var axes = [];
-            raw.forEach(function (value) {
-                if ((value === 'width' || value === 'height') && !seen[value]) {
-                    seen[value] = true;
-                    axes.push(value);
-                }
-            });
-            return axes.length ? axes : ['width', 'height'];
-        }
-        function placePathName(pathContext, textOffset) {
-            var placement = {
-                textCenter: [0, 0],
-                textAngle: 0,
-                leaderStart: [0, 0],
-                leaderEnd: [0, 0]
-            };
-            switch (pathContext.type) {
-                case MakerJs.pathType.Line: {
-                    var line = pathContext;
-                    var center = MakerJs.point.middle(line);
-                    var a = MakerJs.angle.ofPointInDegrees(line.origin, line.end);
-                    var n = a + 90;
-                    placement.textCenter = MakerJs.point.add(center, polar(n, textOffset));
-                    placement.textAngle = a;
-                    placement.leaderStart = center;
-                    placement.leaderEnd = MakerJs.point.add(center, polar(n, textOffset * 0.7));
-                    return placement;
-                }
-                case MakerJs.pathType.Arc: {
-                    var arc = pathContext;
-                    var span = MakerJs.angle.ofArcSpan(arc);
-                    var midAngle = normalizeAngle(arc.startAngle + span / 2);
-                    var onArc = MakerJs.point.add(arc.origin, polar(midAngle, arc.radius));
-                    placement.textCenter = MakerJs.point.add(onArc, polar(midAngle, textOffset));
-                    placement.textAngle = normalizeAngle(midAngle + 90);
-                    placement.leaderStart = onArc;
-                    placement.leaderEnd = MakerJs.point.add(onArc, polar(midAngle, textOffset * 0.7));
-                    return placement;
-                }
-                case MakerJs.pathType.Circle: {
-                    var circle = pathContext;
-                    var a = 45;
-                    var onCircle = MakerJs.point.add(circle.origin, polar(a, circle.radius));
-                    placement.textCenter = MakerJs.point.add(onCircle, polar(a, textOffset));
-                    placement.textAngle = 0;
-                    placement.leaderStart = onCircle;
-                    placement.leaderEnd = MakerJs.point.add(onCircle, polar(a, textOffset * 0.7));
-                    return placement;
-                }
-                default: {
-                    var ext = MakerJs.measure.pathExtents(pathContext);
-                    var center = MakerJs.point.average(ext.low, ext.high);
-                    placement.textCenter = MakerJs.point.add(center, [0, textOffset]);
-                    placement.textAngle = 0;
-                    placement.leaderStart = center;
-                    placement.leaderEnd = MakerJs.point.add(center, [0, textOffset * 0.7]);
-                    return placement;
-                }
-            }
-        }
-        function buildPathNameModel(pathContext, label, options) {
-            var textOffset = options.textOffset === undefined ? 8 : options.textOffset;
-            var textSpan = options.textSpan === undefined ? 10 : options.textSpan;
-            var layer = options.layer || 'PATH_NAMES';
-            var alignToPath = options.alignToPath !== false;
-            var placement = placePathName(pathContext, textOffset);
-            var textAngle = alignToPath ? placement.textAngle : 0;
-            var a = MakerJs.point.add(placement.textCenter, polar(textAngle + 180, textSpan / 2));
-            var b = MakerJs.point.add(placement.textCenter, polar(textAngle, textSpan / 2));
-            var labelModel = {
-                paths: {
-                    leader: new MakerJs.paths.Line(placement.leaderStart, placement.leaderEnd)
-                },
-                caption: {
-                    text: label,
-                    anchor: new MakerJs.paths.Line(a, b)
-                },
-                layer: layer
-            };
-            labelModel.paths.leader.layer = layer;
-            labelModel.caption.anchor.layer = layer;
-            return labelModel;
-        }
-        function buildLabelModel(text, leaderStart, shelfStart, options) {
-            if (options === void 0) { options = {}; }
-            var layer = options.layer || 'DIMENSIONS';
-            var textHeight = options.textHeight === undefined ? 2.5 : options.textHeight;
-            var textRotation = options.textRotation === undefined ? 0 : options.textRotation;
-            var textWidth = options.textWidth === undefined ? Math.max(text.length * textHeight * 0.7, textHeight * 4) : options.textWidth;
-            var shelfLength = options.shelfLength === undefined ? textWidth + textHeight * 2 : options.shelfLength;
-            var arrowSize = options.arrowSize === undefined ? 2 : options.arrowSize;
-            var direction = options.textPosition && options.textPosition[0] < shelfStart[0] ? -1 : 1;
-            var shelfEnd = MakerJs.point.add(shelfStart, [direction * shelfLength, 0]);
-            var defaultTextPosition = MakerJs.point.add(MakerJs.point.average(shelfStart, shelfEnd), [0, -textHeight * 1.5]);
-            var textCenter = options.textPosition ? MakerJs.point.clone(options.textPosition) : defaultTextPosition;
-            var a = MakerJs.point.add(textCenter, polar(textRotation + 180, textWidth / 2));
-            var b = MakerJs.point.add(textCenter, polar(textRotation, textWidth / 2));
-            var arrowAngle = MakerJs.angle.ofPointInDegrees(leaderStart, shelfStart);
-            var spread = 22;
-            var arrowLeft = MakerJs.point.add(leaderStart, polar(arrowAngle + spread, arrowSize));
-            var arrowRight = MakerJs.point.add(leaderStart, polar(arrowAngle - spread, arrowSize));
-            var labelModel = {
-                paths: {
-                    leader: new MakerJs.paths.Line(leaderStart, shelfStart),
-                    shelf: new MakerJs.paths.Line(shelfStart, shelfEnd)
-                },
-                models: {
-                    arrow: {
-                        paths: {
-                            l1: new MakerJs.paths.Line(leaderStart, arrowLeft),
-                            l2: new MakerJs.paths.Line(leaderStart, arrowRight)
-                        }
-                    }
-                },
-                caption: {
-                    text: text,
-                    anchor: new MakerJs.paths.Line(a, b)
-                },
-                layer: layer,
-                labelData: {
-                    type: 'label',
-                    layer: layer,
-                    text: text,
-                    textHeight: options.textHeight,
-                    textPosition: textCenter,
-                    textRotation: textRotation
-                }
-            };
-            labelModel.paths.leader.layer = layer;
-            labelModel.paths.shelf.layer = layer;
-            labelModel.models.arrow.layer = layer;
-            labelModel.caption.anchor.layer = layer;
-            return labelModel;
-        }
-        function getDimensionId(modelContext, prefix, key) {
-            var baseKey = key || prefix;
-            return MakerJs.model.getSimilarModelId(modelContext, baseKey);
-        }
-        function addDimensionModel(modelContext, dimensionModel, defaultPrefix, key) {
-            var dimensionId = getDimensionId(modelContext, defaultPrefix, key);
-            MakerJs.model.addModel(modelContext, dimensionModel, dimensionId);
-            return dimensionModel;
-        }
-        function getSignedOffset(point1, point2, dimensionLinePoint) {
-            var a = MakerJs.angle.ofPointInDegrees(point1, point2);
-            var n = MakerJs.point.fromPolar(MakerJs.angle.toRadians(a + 90), 1);
-            var v = MakerJs.point.subtract(dimensionLinePoint, point1);
-            return v[0] * n[0] + v[1] * n[1];
-        }
-        function resolveLinearDimensionArguments(pathOrPoint1, point2OrOffset, offsetOrOptions, options) {
-            if (options === void 0) { options = {}; }
-            if (MakerJs.isPathLine(pathOrPoint1)) {
-                var line = pathOrPoint1;
-                return {
-                    point1: line.origin,
-                    point2: line.end,
-                    offset: point2OrOffset,
-                    options: (offsetOrOptions || {})
-                };
-            }
-            return {
-                point1: pathOrPoint1,
-                point2: point2OrOffset,
-                offset: offsetOrOptions,
-                options: options
-            };
-        }
-        function resolveLinearAtPointArguments(pathOrPoint1, point2OrDimensionLinePoint, dimensionLinePointOrOptions, options) {
-            if (options === void 0) { options = {}; }
-            if (MakerJs.isPathLine(pathOrPoint1)) {
-                var line = pathOrPoint1;
-                return {
-                    point1: line.origin,
-                    point2: line.end,
-                    dimensionLinePoint: point2OrDimensionLinePoint,
-                    options: (dimensionLinePointOrOptions || {})
-                };
-            }
-            return {
-                point1: pathOrPoint1,
-                point2: point2OrDimensionLinePoint,
-                dimensionLinePoint: dimensionLinePointOrOptions,
-                options: options
-            };
-        }
-        function resolveAngularDimensionArguments(centerPointOrArc, point1OrOptions, point2, radiusOrOptions, options) {
-            if (options === void 0) { options = {}; }
-            if (MakerJs.isPathArc(centerPointOrArc)) {
-                var arc = centerPointOrArc;
-                var arcPoints = MakerJs.point.fromArc(arc);
-                return {
-                    centerPoint: arc.origin,
-                    point1: arcPoints[0],
-                    point2: arcPoints[1],
-                    radius: arc.radius,
-                    options: (point1OrOptions || {})
-                };
-            }
-            return {
-                centerPoint: centerPointOrArc,
-                point1: point1OrOptions,
-                point2: point2,
-                radius: radiusOrOptions,
-                options: options
-            };
-        }
-        function resolveRadialDimensionArguments(centerPointOrPath, radiusPointOrOptions, options) {
-            if (options === void 0) { options = {}; }
-            if (MakerJs.isPathCircle(centerPointOrPath)) {
-                var circle = centerPointOrPath;
-                return {
-                    centerPoint: circle.origin,
-                    radiusPoint: MakerJs.point.add(circle.origin, [circle.radius, 0]),
-                    options: (radiusPointOrOptions || {})
-                };
-            }
-            if (MakerJs.isPathArc(centerPointOrPath)) {
-                var arc = centerPointOrPath;
-                var midAngle = arc.startAngle + MakerJs.angle.ofArcSpan(arc) / 2;
-                return {
-                    centerPoint: arc.origin,
-                    radiusPoint: MakerJs.point.add(arc.origin, polar(midAngle, arc.radius)),
-                    options: (radiusPointOrOptions || {})
-                };
-            }
-            return {
-                centerPoint: centerPointOrPath,
-                radiusPoint: radiusPointOrOptions,
-                options: options
-            };
-        }
-        function addLinear(modelContext, pathOrPoint1, point2OrOffset, offsetOrOptions, options) {
-            if (options === void 0) { options = {}; }
-            var resolved = resolveLinearDimensionArguments(pathOrPoint1, point2OrOffset, offsetOrOptions, options);
-            return addDimensionModel(modelContext, new MakerJs.models.LinearDimension(resolved.point1, resolved.point2, resolved.offset, resolved.options), 'dimL', resolved.options.key);
-        }
-        dimension.addLinear = addLinear;
-        function addLinearAtPoint(modelContext, pathOrPoint1, point2OrDimensionLinePoint, dimensionLinePointOrOptions, options) {
-            if (options === void 0) { options = {}; }
-            var resolved = resolveLinearAtPointArguments(pathOrPoint1, point2OrDimensionLinePoint, dimensionLinePointOrOptions, options);
-            var offset = getSignedOffset(resolved.point1, resolved.point2, resolved.dimensionLinePoint);
-            var dim = new MakerJs.models.LinearDimension(resolved.point1, resolved.point2, offset, resolved.options);
-            var baseAngle = MakerJs.angle.ofPointInDegrees(resolved.point1, resolved.point2);
-            dim.dimensionData.dimensionAngle = baseAngle;
-            dim.dimensionData.textRotation = resolved.options.textRotation === undefined ? baseAngle : resolved.options.textRotation;
-            return addDimensionModel(modelContext, dim, 'dimP', resolved.options.key);
-        }
-        dimension.addLinearAtPoint = addLinearAtPoint;
-        /**
-         * Create horizontal / vertical dimensions for a model's overall extents without mutating the source model.
-         */
-        function createModelExtentsDimensionModel(sourceModel, options) {
-            if (options === void 0) { options = {}; }
-            var ext = MakerJs.measure.modelExtents(sourceModel);
-            if (!ext)
-                return null;
-            var axes = normalizeAxes(options.axis);
-            var container = { models: {} };
-            var sharedOffset = options.offset === undefined ? 10 : options.offset;
-            var horizontalOffset = options.horizontalOffset === undefined ? sharedOffset : options.horizontalOffset;
-            var verticalOffset = options.verticalOffset === undefined ? sharedOffset : options.verticalOffset;
-            var pTopLeft = [ext.low[0], ext.high[1]];
-            var pTopRight = [ext.high[0], ext.high[1]];
-            var pRightBottom = [ext.high[0], ext.low[1]];
-            var pRightTop = [ext.high[0], ext.high[1]];
-            var baseKey = options.key || 'dimExtents';
-            if (axes.indexOf('width') >= 0) {
-                var horizontalOptions = MakerJs.extendObject({}, options);
-                horizontalOptions.key = baseKey + '_h';
-                horizontalOptions.layer = options.horizontalLayer || (options.layer ? options.layer + '_H' : 'DIMENSIONS');
-                if (options.horizontalText) {
-                    horizontalOptions.text = options.horizontalText;
-                }
-                addLinearAtPoint(container, pTopLeft, pTopRight, [ext.low[0], ext.high[1] + horizontalOffset], horizontalOptions);
-            }
-            if (axes.indexOf('height') >= 0) {
-                var verticalOptions = MakerJs.extendObject({}, options);
-                verticalOptions.key = baseKey + '_v';
-                verticalOptions.layer = options.verticalLayer || (options.layer ? options.layer + '_V' : 'DIMENSIONS');
-                if (options.verticalText) {
-                    verticalOptions.text = options.verticalText;
-                }
-                addLinearAtPoint(container, pRightBottom, pRightTop, [ext.high[0] + verticalOffset, ext.low[1]], verticalOptions);
-            }
-            return container;
-        }
-        dimension.createModelExtentsDimensionModel = createModelExtentsDimensionModel;
-        /**
-         * Auto-dimension a model by its extents.
-         * Creates one horizontal and one vertical dimension based on model bounds.
-         */
-        function addModelExtentsDimensions(modelContext, options) {
-            if (options === void 0) { options = {}; }
-            var ext = MakerJs.measure.modelExtents(modelContext);
-            if (!ext)
-                return null;
-            var axes = normalizeAxes(options.axis);
-            var sharedOffset = options.offset === undefined ? 10 : options.offset;
-            var horizontalOffset = options.horizontalOffset === undefined ? sharedOffset : options.horizontalOffset;
-            var verticalOffset = options.verticalOffset === undefined ? sharedOffset : options.verticalOffset;
-            var pTopLeft = [ext.low[0], ext.high[1]];
-            var pTopRight = [ext.high[0], ext.high[1]];
-            var pRightBottom = [ext.high[0], ext.low[1]];
-            var pRightTop = [ext.high[0], ext.high[1]];
-            var baseKey = options.key || 'dimExtents';
-            var horizontal = null;
-            var vertical = null;
-            if (axes.indexOf('width') >= 0) {
-                var horizontalOptions = MakerJs.extendObject({}, options);
-                horizontalOptions.key = baseKey + '_h';
-                horizontalOptions.layer = options.horizontalLayer || (options.layer ? options.layer + '_H' : 'DIMENSIONS');
-                if (options.horizontalText) {
-                    horizontalOptions.text = options.horizontalText;
-                }
-                horizontal = addLinearAtPoint(modelContext, pTopLeft, pTopRight, [ext.low[0], ext.high[1] + horizontalOffset], horizontalOptions);
-                var horizontalData = horizontal.dimensionData;
-                horizontalData.dimensionAngle = 0;
-                horizontalData.textRotation = horizontalOptions.textRotation === undefined ? 0 : horizontalOptions.textRotation;
-            }
-            if (axes.indexOf('height') >= 0) {
-                var verticalOptions = MakerJs.extendObject({}, options);
-                verticalOptions.key = baseKey + '_v';
-                verticalOptions.layer = options.verticalLayer || (options.layer ? options.layer + '_V' : 'DIMENSIONS');
-                if (options.verticalText) {
-                    verticalOptions.text = options.verticalText;
-                }
-                vertical = addLinearAtPoint(modelContext, pRightBottom, pRightTop, [ext.high[0] + verticalOffset, ext.low[1]], verticalOptions);
-                var verticalData = vertical.dimensionData;
-                verticalData.dimensionAngle = 90;
-                verticalData.textRotation = verticalOptions.textRotation === undefined ? 90 : verticalOptions.textRotation;
-            }
-            return { horizontal: horizontal, vertical: vertical };
-        }
-        dimension.addModelExtentsDimensions = addModelExtentsDimensions;
-        function getAutoDimensionPrefix(source, type) {
-            if (type === 'diameter')
-                return 'dimD';
-            if (type === 'radial' || MakerJs.isPathCircle(source))
-                return 'dimR';
-            if (type === 'extents')
-                return 'dimExtents';
-            if (type === 'angular' || MakerJs.isPathArc(source))
-                return 'dimAngular';
-            if (type === 'aligned')
-                return 'dimAligned';
-            return 'dimL';
-        }
-        function create(source, offsetOrOptions, options) {
-            if (options === void 0) { options = {}; }
-            return MakerJs.models.Dimension.create(source, offsetOrOptions, options);
-        }
-        dimension.create = create;
-        function add(modelContext, source, offsetOrOptions, options) {
-            if (options === void 0) { options = {}; }
-            var dimensionModel = create(source, offsetOrOptions, options);
-            if (!dimensionModel)
-                return null;
-            var resolvedOptions = ((typeof offsetOrOptions === 'number' ? options : (offsetOrOptions || options)) || {});
-            return addDimensionModel(modelContext, dimensionModel, getAutoDimensionPrefix(source, resolvedOptions.type), resolvedOptions.key);
-        }
-        dimension.add = add;
-        function addHorizontal(modelContext, pathOrPoint1, point2OrOffset, offsetOrOptions, options) {
-            if (options === void 0) { options = {}; }
-            var resolved = resolveLinearDimensionArguments(pathOrPoint1, point2OrOffset, offsetOrOptions, options);
-            var a = [resolved.point1[0], resolved.point1[1]];
-            var b = [resolved.point2[0], resolved.point1[1]];
-            var dim = new MakerJs.models.AlignedDimension(a, b, resolved.offset, resolved.options);
-            dim.dimensionData.dimensionAngle = 0;
-            dim.dimensionData.textRotation = resolved.options.textRotation === undefined ? 0 : resolved.options.textRotation;
-            return addDimensionModel(modelContext, dim, 'dimH', resolved.options.key);
-        }
-        dimension.addHorizontal = addHorizontal;
-        function addVertical(modelContext, pathOrPoint1, point2OrOffset, offsetOrOptions, options) {
-            if (options === void 0) { options = {}; }
-            var resolved = resolveLinearDimensionArguments(pathOrPoint1, point2OrOffset, offsetOrOptions, options);
-            var a = [resolved.point1[0], resolved.point1[1]];
-            var b = [resolved.point1[0], resolved.point2[1]];
-            var dim = new MakerJs.models.AlignedDimension(a, b, resolved.offset, resolved.options);
-            dim.dimensionData.dimensionAngle = 90;
-            dim.dimensionData.textRotation = resolved.options.textRotation === undefined ? 90 : resolved.options.textRotation;
-            return addDimensionModel(modelContext, dim, 'dimV', resolved.options.key);
-        }
-        dimension.addVertical = addVertical;
-        function addAngular(modelContext, centerPointOrArc, point1OrOptions, point2, radiusOrOptions, options) {
-            if (options === void 0) { options = {}; }
-            var resolved = resolveAngularDimensionArguments(centerPointOrArc, point1OrOptions, point2, radiusOrOptions, options);
-            return addDimensionModel(modelContext, new MakerJs.models.AngularDimension(resolved.centerPoint, resolved.point1, resolved.point2, resolved.radius, resolved.options), 'dimA', resolved.options.key);
-        }
-        dimension.addAngular = addAngular;
-        function addRadial(modelContext, centerPointOrPath, radiusPointOrOptions, options) {
-            if (options === void 0) { options = {}; }
-            var resolved = resolveRadialDimensionArguments(centerPointOrPath, radiusPointOrOptions, options);
-            return addDimensionModel(modelContext, new MakerJs.models.RadialDimension(resolved.centerPoint, resolved.radiusPoint, resolved.options), 'dimR', resolved.options.key);
-        }
-        dimension.addRadial = addRadial;
-        function addDiameter(modelContext, centerPointOrPath, radiusPointOrOptions, options) {
-            if (options === void 0) { options = {}; }
-            var resolved = resolveRadialDimensionArguments(centerPointOrPath, radiusPointOrOptions, options);
-            var diameterOptions = MakerJs.extendObject({}, resolved.options);
-            return addDimensionModel(modelContext, new MakerJs.models.RadialDimension(resolved.centerPoint, resolved.radiusPoint, diameterOptions, true), 'dimD', resolved.options.key);
-        }
-        dimension.addDiameter = addDiameter;
-        function addPathNames(modelContext, options) {
-            if (options === void 0) { options = {}; }
-            var labelContainer = {
-                models: {}
-            };
-            var i = 0;
-            MakerJs.model.walk(modelContext, {
-                onPath: function (walkedPath) {
-                    var absPath = MakerJs.path.clone(walkedPath.pathContext, walkedPath.offset);
-                    var label = options.includeRouteKey ? walkedPath.routeKey : walkedPath.pathId;
-                    labelContainer.models['name_' + i++] = buildPathNameModel(absPath, label, options);
-                }
-            });
-            if (i === 0)
-                return null;
-            var key = options.key || 'pathNames';
-            var id = MakerJs.model.getSimilarModelId(modelContext, key);
-            MakerJs.model.addModel(modelContext, labelContainer, id);
-            return labelContainer;
-        }
-        dimension.addPathNames = addPathNames;
-        /**
-         * Add a text label / callout with a leader and horizontal shelf.
-         * `leaderStart` controls where the line begins and `shelfStart` controls where the text shelf starts.
-         */
-        function labels(modelContext, text, leaderStart, shelfStart, options) {
-            if (options === void 0) { options = {}; }
-            return addDimensionModel(modelContext, buildLabelModel(text, leaderStart, shelfStart, options), 'label', options.key);
-        }
-        dimension.labels = labels;
-    })(dimension = MakerJs.dimension || (MakerJs.dimension = {}));
 })(MakerJs || (MakerJs = {}));
 var MakerJs;
 (function (MakerJs) {
@@ -11146,6 +10916,297 @@ var MakerJs;
         ];
     })(models = MakerJs.models || (MakerJs.models = {}));
 })(MakerJs || (MakerJs = {}));
+/// <reference types="fontkit" />
+var MakerJs;
+(function (MakerJs) {
+    var models;
+    (function (models) {
+        var Text = /** @class */ (function () {
+            /**
+             * Renders text in a given font to a model.
+             * @param font OpenType.Font object or fontkit font object.
+             * @param text String of text to render.
+             * @param fontSize Font size.
+             * @param combine Flag (default false) to perform a combineUnion upon each character with characters to the left and right.
+             * @param centerCharacterOrigin Flag (default false) to move the x origin of each character to the center. Useful for rotating text characters.
+             * @param bezierAccuracy Optional accuracy of Bezier curves.
+             * @param opentypeOptions Optional opentype.RenderOptions object or fontkit layout options.
+             * @returns Model of the text.
+             */
+            function Text(font, text, fontSize, combine, centerCharacterOrigin, bezierAccuracy, opentypeOptions) {
+                if (combine === void 0) { combine = false; }
+                if (centerCharacterOrigin === void 0) { centerCharacterOrigin = false; }
+                var _this = this;
+                this.models = {};
+                var charIndex = 0;
+                var prevDeleted;
+                var prevChar;
+                var cb = function (glyph, x, y, _fontSize, options) {
+                    var charModel = Text.glyphToModel(glyph, _fontSize, bezierAccuracy, font);
+                    charModel.origin = [x, 0];
+                    if (centerCharacterOrigin && (charModel.paths || charModel.models)) {
+                        var m = MakerJs.measure.modelExtents(charModel);
+                        if (m) {
+                            var w = m.high[0] - m.low[0];
+                            MakerJs.model.originate(charModel, [m.low[0] + w / 2, 0]);
+                        }
+                    }
+                    if (combine && charIndex > 0) {
+                        var combineOptions = {};
+                        var prev;
+                        if (prevDeleted) {
+                            //form a temporary complete geometry of the previous character using the previously deleted segments
+                            prev = {
+                                models: {
+                                    deleted: prevDeleted,
+                                    char: prevChar
+                                }
+                            };
+                        }
+                        else {
+                            prev = prevChar;
+                        }
+                        MakerJs.model.combine(prev, charModel, false, true, false, true, combineOptions);
+                        //save the deleted segments from this character for the next iteration
+                        prevDeleted = combineOptions.out_deleted[1];
+                    }
+                    _this.models[charIndex] = charModel;
+                    charIndex++;
+                    prevChar = charModel;
+                };
+                // Detect if font is fontkit (has layout method) or opentype.js (has forEachGlyph)
+                if (font.layout && typeof font.layout === 'function') {
+                    // fontkit font - use layout engine
+                    var fontkitFont = font;
+                    var layoutOpts = opentypeOptions;
+                    var run = fontkitFont.layout(text, layoutOpts === null || layoutOpts === void 0 ? void 0 : layoutOpts.features, layoutOpts === null || layoutOpts === void 0 ? void 0 : layoutOpts.script, layoutOpts === null || layoutOpts === void 0 ? void 0 : layoutOpts.language, layoutOpts === null || layoutOpts === void 0 ? void 0 : layoutOpts.direction);
+                    var scale = fontSize / fontkitFont.unitsPerEm;
+                    var currentX = 0;
+                    for (var i = 0; i < run.glyphs.length; i++) {
+                        var glyph = run.glyphs[i];
+                        var position = run.positions[i];
+                        var glyphX = currentX + (position.xOffset || 0) * scale;
+                        var glyphY = (position.yOffset || 0) * scale;
+                        cb(glyph, glyphX, glyphY, fontSize, opentypeOptions);
+                        currentX += (position.xAdvance || 0) * scale;
+                    }
+                }
+                else {
+                    // opentype.js font - use forEachGlyph
+                    var opentypeFont = font;
+                    opentypeFont.forEachGlyph(text, 0, 0, fontSize, opentypeOptions, cb);
+                }
+            }
+            /**
+             * Convert an opentype glyph or fontkit glyph to a model.
+             * @param glyph Opentype.Glyph object or fontkit glyph.
+             * @param fontSize Font size.
+             * @param bezierAccuracy Optional accuracy of Bezier curves.
+             * @param font Optional font object (needed for fontkit to get scale).
+             * @returns Model of the glyph.
+             */
+            Text.glyphToModel = function (glyph, fontSize, bezierAccuracy, font) {
+                var charModel = {};
+                var firstPoint;
+                var currPoint;
+                var pathCount = 0;
+                function addPath(p, layer) {
+                    if (!charModel.paths) {
+                        charModel.paths = {};
+                    }
+                    if (layer) {
+                        if (!charModel.layer)
+                            charModel.layer = layer;
+                    }
+                    charModel.paths['p_' + ++pathCount] = p;
+                }
+                function addModel(m, layer) {
+                    if (!charModel.models) {
+                        charModel.models = {};
+                    }
+                    if (layer) {
+                        if (!charModel.layer)
+                            charModel.layer = layer;
+                    }
+                    charModel.models['p_' + ++pathCount] = m;
+                }
+                // Detect if this is a fontkit glyph (has path property) or opentype.js glyph (has getPath method)
+                var isFontkitGlyph = glyph.path && !glyph.getPath;
+                var p;
+                if (isFontkitGlyph && font) {
+                    // fontkit glyph
+                    var scale_1 = fontSize / font.unitsPerEm;
+                    p = glyph.path;
+                    // Check for color layers (COLR table support)
+                    if (glyph.layers && glyph.layers.length > 0) {
+                        // Handle color glyph with layers
+                        glyph.layers.forEach(function (layer, layerIndex) {
+                            var layerGlyph = font.getGlyph(layer.glyph);
+                            var layerPath = layerGlyph.path;
+                            if (layerPath && layerPath.commands) {
+                                // Get color from palette if available
+                                var layerColor = void 0;
+                                if (font['COLR'] && font['CPAL'] && layer.color !== undefined) {
+                                    // CPAL table structure varies, try to access color palettes
+                                    var cpal = font['CPAL'];
+                                    var colorPalettes = cpal.colorPalettes || cpal.colorRecords;
+                                    if (colorPalettes && colorPalettes.length > 0) {
+                                        // Get the first palette
+                                        var palette = colorPalettes[0];
+                                        if (palette && palette.length > layer.color) {
+                                            var color = palette[layer.color];
+                                            if (color) {
+                                                // Convert RGBA to hex color for layer name
+                                                var red = color.red !== undefined ? color.red : color.r || 0;
+                                                var green = color.green !== undefined ? color.green : color.g || 0;
+                                                var blue = color.blue !== undefined ? color.blue : color.b || 0;
+                                                layerColor = "color_".concat(red.toString(16).padStart(2, '0')).concat(green.toString(16).padStart(2, '0')).concat(blue.toString(16).padStart(2, '0'));
+                                            }
+                                        }
+                                    }
+                                }
+                                // Process layer path commands
+                                var layerFirstPoint = void 0;
+                                var layerCurrPoint = void 0;
+                                for (var _i = 0, _a = layerPath.commands; _i < _a.length; _i++) {
+                                    var cmd = _a[_i];
+                                    var points = Text.convertFontkitCommand(cmd, scale_1);
+                                    switch (cmd.command) {
+                                        case 'moveTo':
+                                            layerFirstPoint = points[0];
+                                            layerCurrPoint = points[0];
+                                            break;
+                                        case 'closePath':
+                                            points[0] = layerFirstPoint;
+                                        // fall through to line
+                                        case 'lineTo':
+                                            if (layerCurrPoint && !MakerJs.measure.isPointEqual(layerCurrPoint, points[0])) {
+                                                addPath(new MakerJs.paths.Line(layerCurrPoint, points[0]), layerColor);
+                                            }
+                                            layerCurrPoint = points[0];
+                                            break;
+                                        case 'bezierCurveTo':
+                                            if (layerCurrPoint) {
+                                                addModel(new models.BezierCurve(layerCurrPoint, points[0], points[1], points[2], bezierAccuracy), layerColor);
+                                            }
+                                            layerCurrPoint = points[2];
+                                            break;
+                                        case 'quadraticCurveTo':
+                                            if (layerCurrPoint) {
+                                                addModel(new models.BezierCurve(layerCurrPoint, points[0], points[1], bezierAccuracy), layerColor);
+                                            }
+                                            layerCurrPoint = points[1];
+                                            break;
+                                    }
+                                }
+                            }
+                        });
+                        return charModel;
+                    }
+                    // Standard fontkit glyph (no color layers)
+                    if (!p || !p.commands) {
+                        return charModel; // Empty glyph (e.g., space)
+                    }
+                    for (var _i = 0, _a = p.commands; _i < _a.length; _i++) {
+                        var cmd = _a[_i];
+                        var points = Text.convertFontkitCommand(cmd, scale_1);
+                        switch (cmd.command) {
+                            case 'moveTo':
+                                firstPoint = points[0];
+                                currPoint = points[0];
+                                break;
+                            case 'closePath':
+                                points[0] = firstPoint;
+                            // fall through to line
+                            case 'lineTo':
+                                if (!MakerJs.measure.isPointEqual(currPoint, points[0])) {
+                                    addPath(new MakerJs.paths.Line(currPoint, points[0]));
+                                }
+                                currPoint = points[0];
+                                break;
+                            case 'bezierCurveTo':
+                                addModel(new models.BezierCurve(currPoint, points[0], points[1], points[2], bezierAccuracy));
+                                currPoint = points[2];
+                                break;
+                            case 'quadraticCurveTo':
+                                addModel(new models.BezierCurve(currPoint, points[0], points[1], bezierAccuracy));
+                                currPoint = points[1];
+                                break;
+                        }
+                    }
+                }
+                else {
+                    // opentype.js glyph
+                    p = glyph.getPath(0, 0, fontSize);
+                    p.commands.map(function (command, i) {
+                        var points = [[command.x, command.y], [command.x1, command.y1], [command.x2, command.y2]].map(function (p) {
+                            if (p[0] !== void 0) {
+                                return MakerJs.point.mirror(p, false, true);
+                            }
+                        });
+                        switch (command.type) {
+                            case 'M':
+                                firstPoint = points[0];
+                                break;
+                            case 'Z':
+                                points[0] = firstPoint;
+                            //fall through to line
+                            case 'L':
+                                if (!MakerJs.measure.isPointEqual(currPoint, points[0])) {
+                                    addPath(new MakerJs.paths.Line(currPoint, points[0]));
+                                }
+                                break;
+                            case 'C':
+                                addModel(new models.BezierCurve(currPoint, points[1], points[2], points[0], bezierAccuracy));
+                                break;
+                            case 'Q':
+                                addModel(new models.BezierCurve(currPoint, points[1], points[0], bezierAccuracy));
+                                break;
+                        }
+                        currPoint = points[0];
+                    });
+                }
+                return charModel;
+            };
+            /**
+             * Convert fontkit path command to points array
+             * @param cmd Fontkit path command
+             * @param scale Scale factor
+             * @returns Array of points
+             */
+            Text.convertFontkitCommand = function (cmd, scale) {
+                var points = [];
+                switch (cmd.command) {
+                    case 'moveTo':
+                    case 'lineTo':
+                        points.push([cmd.args[0] * scale, cmd.args[1] * scale]);
+                        break;
+                    case 'quadraticCurveTo':
+                        // Control point, end point
+                        points.push([cmd.args[0] * scale, cmd.args[1] * scale]);
+                        points.push([cmd.args[2] * scale, cmd.args[3] * scale]);
+                        break;
+                    case 'bezierCurveTo':
+                        // Control point 1, control point 2, end point
+                        points.push([cmd.args[0] * scale, cmd.args[1] * scale]);
+                        points.push([cmd.args[2] * scale, cmd.args[3] * scale]);
+                        points.push([cmd.args[4] * scale, cmd.args[5] * scale]);
+                        break;
+                }
+                return points;
+            };
+            return Text;
+        }());
+        models.Text = Text;
+        Text.metaParameters = [
+            { title: "font", type: "font", value: '*' },
+            { title: "text", type: "text", value: 'Hello' },
+            { title: "font size", type: "range", min: 10, max: 200, value: 72 },
+            { title: "combine", type: "bool", value: false },
+            { title: "center character origin", type: "bool", value: false }
+        ];
+    })(models = MakerJs.models || (MakerJs.models = {}));
+})(MakerJs || (MakerJs = {}));
 var MakerJs;
 (function (MakerJs) {
     var models;
@@ -11475,297 +11536,6 @@ var MakerJs;
             return Dimension;
         }());
         models.Dimension = Dimension;
-    })(models = MakerJs.models || (MakerJs.models = {}));
-})(MakerJs || (MakerJs = {}));
-/// <reference types="fontkit" />
-var MakerJs;
-(function (MakerJs) {
-    var models;
-    (function (models) {
-        var Text = /** @class */ (function () {
-            /**
-             * Renders text in a given font to a model.
-             * @param font OpenType.Font object or fontkit font object.
-             * @param text String of text to render.
-             * @param fontSize Font size.
-             * @param combine Flag (default false) to perform a combineUnion upon each character with characters to the left and right.
-             * @param centerCharacterOrigin Flag (default false) to move the x origin of each character to the center. Useful for rotating text characters.
-             * @param bezierAccuracy Optional accuracy of Bezier curves.
-             * @param opentypeOptions Optional opentype.RenderOptions object or fontkit layout options.
-             * @returns Model of the text.
-             */
-            function Text(font, text, fontSize, combine, centerCharacterOrigin, bezierAccuracy, opentypeOptions) {
-                if (combine === void 0) { combine = false; }
-                if (centerCharacterOrigin === void 0) { centerCharacterOrigin = false; }
-                var _this = this;
-                this.models = {};
-                var charIndex = 0;
-                var prevDeleted;
-                var prevChar;
-                var cb = function (glyph, x, y, _fontSize, options) {
-                    var charModel = Text.glyphToModel(glyph, _fontSize, bezierAccuracy, font);
-                    charModel.origin = [x, 0];
-                    if (centerCharacterOrigin && (charModel.paths || charModel.models)) {
-                        var m = MakerJs.measure.modelExtents(charModel);
-                        if (m) {
-                            var w = m.high[0] - m.low[0];
-                            MakerJs.model.originate(charModel, [m.low[0] + w / 2, 0]);
-                        }
-                    }
-                    if (combine && charIndex > 0) {
-                        var combineOptions = {};
-                        var prev;
-                        if (prevDeleted) {
-                            //form a temporary complete geometry of the previous character using the previously deleted segments
-                            prev = {
-                                models: {
-                                    deleted: prevDeleted,
-                                    char: prevChar
-                                }
-                            };
-                        }
-                        else {
-                            prev = prevChar;
-                        }
-                        MakerJs.model.combine(prev, charModel, false, true, false, true, combineOptions);
-                        //save the deleted segments from this character for the next iteration
-                        prevDeleted = combineOptions.out_deleted[1];
-                    }
-                    _this.models[charIndex] = charModel;
-                    charIndex++;
-                    prevChar = charModel;
-                };
-                // Detect if font is fontkit (has layout method) or opentype.js (has forEachGlyph)
-                if (font.layout && typeof font.layout === 'function') {
-                    // fontkit font - use layout engine
-                    var fontkitFont = font;
-                    var layoutOpts = opentypeOptions;
-                    var run = fontkitFont.layout(text, layoutOpts === null || layoutOpts === void 0 ? void 0 : layoutOpts.features, layoutOpts === null || layoutOpts === void 0 ? void 0 : layoutOpts.script, layoutOpts === null || layoutOpts === void 0 ? void 0 : layoutOpts.language, layoutOpts === null || layoutOpts === void 0 ? void 0 : layoutOpts.direction);
-                    var scale = fontSize / fontkitFont.unitsPerEm;
-                    var currentX = 0;
-                    for (var i = 0; i < run.glyphs.length; i++) {
-                        var glyph = run.glyphs[i];
-                        var position = run.positions[i];
-                        var glyphX = currentX + (position.xOffset || 0) * scale;
-                        var glyphY = (position.yOffset || 0) * scale;
-                        cb(glyph, glyphX, glyphY, fontSize, opentypeOptions);
-                        currentX += (position.xAdvance || 0) * scale;
-                    }
-                }
-                else {
-                    // opentype.js font - use forEachGlyph
-                    var opentypeFont = font;
-                    opentypeFont.forEachGlyph(text, 0, 0, fontSize, opentypeOptions, cb);
-                }
-            }
-            /**
-             * Convert an opentype glyph or fontkit glyph to a model.
-             * @param glyph Opentype.Glyph object or fontkit glyph.
-             * @param fontSize Font size.
-             * @param bezierAccuracy Optional accuracy of Bezier curves.
-             * @param font Optional font object (needed for fontkit to get scale).
-             * @returns Model of the glyph.
-             */
-            Text.glyphToModel = function (glyph, fontSize, bezierAccuracy, font) {
-                var charModel = {};
-                var firstPoint;
-                var currPoint;
-                var pathCount = 0;
-                function addPath(p, layer) {
-                    if (!charModel.paths) {
-                        charModel.paths = {};
-                    }
-                    if (layer) {
-                        if (!charModel.layer)
-                            charModel.layer = layer;
-                    }
-                    charModel.paths['p_' + ++pathCount] = p;
-                }
-                function addModel(m, layer) {
-                    if (!charModel.models) {
-                        charModel.models = {};
-                    }
-                    if (layer) {
-                        if (!charModel.layer)
-                            charModel.layer = layer;
-                    }
-                    charModel.models['p_' + ++pathCount] = m;
-                }
-                // Detect if this is a fontkit glyph (has path property) or opentype.js glyph (has getPath method)
-                var isFontkitGlyph = glyph.path && !glyph.getPath;
-                var p;
-                if (isFontkitGlyph && font) {
-                    // fontkit glyph
-                    var scale_1 = fontSize / font.unitsPerEm;
-                    p = glyph.path;
-                    // Check for color layers (COLR table support)
-                    if (glyph.layers && glyph.layers.length > 0) {
-                        // Handle color glyph with layers
-                        glyph.layers.forEach(function (layer, layerIndex) {
-                            var layerGlyph = font.getGlyph(layer.glyph);
-                            var layerPath = layerGlyph.path;
-                            if (layerPath && layerPath.commands) {
-                                // Get color from palette if available
-                                var layerColor = void 0;
-                                if (font['COLR'] && font['CPAL'] && layer.color !== undefined) {
-                                    // CPAL table structure varies, try to access color palettes
-                                    var cpal = font['CPAL'];
-                                    var colorPalettes = cpal.colorPalettes || cpal.colorRecords;
-                                    if (colorPalettes && colorPalettes.length > 0) {
-                                        // Get the first palette
-                                        var palette = colorPalettes[0];
-                                        if (palette && palette.length > layer.color) {
-                                            var color = palette[layer.color];
-                                            if (color) {
-                                                // Convert RGBA to hex color for layer name
-                                                var red = color.red !== undefined ? color.red : color.r || 0;
-                                                var green = color.green !== undefined ? color.green : color.g || 0;
-                                                var blue = color.blue !== undefined ? color.blue : color.b || 0;
-                                                layerColor = "color_".concat(red.toString(16).padStart(2, '0')).concat(green.toString(16).padStart(2, '0')).concat(blue.toString(16).padStart(2, '0'));
-                                            }
-                                        }
-                                    }
-                                }
-                                // Process layer path commands
-                                var layerFirstPoint = void 0;
-                                var layerCurrPoint = void 0;
-                                for (var _i = 0, _a = layerPath.commands; _i < _a.length; _i++) {
-                                    var cmd = _a[_i];
-                                    var points = Text.convertFontkitCommand(cmd, scale_1);
-                                    switch (cmd.command) {
-                                        case 'moveTo':
-                                            layerFirstPoint = points[0];
-                                            layerCurrPoint = points[0];
-                                            break;
-                                        case 'closePath':
-                                            points[0] = layerFirstPoint;
-                                        // fall through to line
-                                        case 'lineTo':
-                                            if (layerCurrPoint && !MakerJs.measure.isPointEqual(layerCurrPoint, points[0])) {
-                                                addPath(new MakerJs.paths.Line(layerCurrPoint, points[0]), layerColor);
-                                            }
-                                            layerCurrPoint = points[0];
-                                            break;
-                                        case 'bezierCurveTo':
-                                            if (layerCurrPoint) {
-                                                addModel(new models.BezierCurve(layerCurrPoint, points[0], points[1], points[2], bezierAccuracy), layerColor);
-                                            }
-                                            layerCurrPoint = points[2];
-                                            break;
-                                        case 'quadraticCurveTo':
-                                            if (layerCurrPoint) {
-                                                addModel(new models.BezierCurve(layerCurrPoint, points[0], points[1], bezierAccuracy), layerColor);
-                                            }
-                                            layerCurrPoint = points[1];
-                                            break;
-                                    }
-                                }
-                            }
-                        });
-                        return charModel;
-                    }
-                    // Standard fontkit glyph (no color layers)
-                    if (!p || !p.commands) {
-                        return charModel; // Empty glyph (e.g., space)
-                    }
-                    for (var _i = 0, _a = p.commands; _i < _a.length; _i++) {
-                        var cmd = _a[_i];
-                        var points = Text.convertFontkitCommand(cmd, scale_1);
-                        switch (cmd.command) {
-                            case 'moveTo':
-                                firstPoint = points[0];
-                                currPoint = points[0];
-                                break;
-                            case 'closePath':
-                                points[0] = firstPoint;
-                            // fall through to line
-                            case 'lineTo':
-                                if (!MakerJs.measure.isPointEqual(currPoint, points[0])) {
-                                    addPath(new MakerJs.paths.Line(currPoint, points[0]));
-                                }
-                                currPoint = points[0];
-                                break;
-                            case 'bezierCurveTo':
-                                addModel(new models.BezierCurve(currPoint, points[0], points[1], points[2], bezierAccuracy));
-                                currPoint = points[2];
-                                break;
-                            case 'quadraticCurveTo':
-                                addModel(new models.BezierCurve(currPoint, points[0], points[1], bezierAccuracy));
-                                currPoint = points[1];
-                                break;
-                        }
-                    }
-                }
-                else {
-                    // opentype.js glyph
-                    p = glyph.getPath(0, 0, fontSize);
-                    p.commands.map(function (command, i) {
-                        var points = [[command.x, command.y], [command.x1, command.y1], [command.x2, command.y2]].map(function (p) {
-                            if (p[0] !== void 0) {
-                                return MakerJs.point.mirror(p, false, true);
-                            }
-                        });
-                        switch (command.type) {
-                            case 'M':
-                                firstPoint = points[0];
-                                break;
-                            case 'Z':
-                                points[0] = firstPoint;
-                            //fall through to line
-                            case 'L':
-                                if (!MakerJs.measure.isPointEqual(currPoint, points[0])) {
-                                    addPath(new MakerJs.paths.Line(currPoint, points[0]));
-                                }
-                                break;
-                            case 'C':
-                                addModel(new models.BezierCurve(currPoint, points[1], points[2], points[0], bezierAccuracy));
-                                break;
-                            case 'Q':
-                                addModel(new models.BezierCurve(currPoint, points[1], points[0], bezierAccuracy));
-                                break;
-                        }
-                        currPoint = points[0];
-                    });
-                }
-                return charModel;
-            };
-            /**
-             * Convert fontkit path command to points array
-             * @param cmd Fontkit path command
-             * @param scale Scale factor
-             * @returns Array of points
-             */
-            Text.convertFontkitCommand = function (cmd, scale) {
-                var points = [];
-                switch (cmd.command) {
-                    case 'moveTo':
-                    case 'lineTo':
-                        points.push([cmd.args[0] * scale, cmd.args[1] * scale]);
-                        break;
-                    case 'quadraticCurveTo':
-                        // Control point, end point
-                        points.push([cmd.args[0] * scale, cmd.args[1] * scale]);
-                        points.push([cmd.args[2] * scale, cmd.args[3] * scale]);
-                        break;
-                    case 'bezierCurveTo':
-                        // Control point 1, control point 2, end point
-                        points.push([cmd.args[0] * scale, cmd.args[1] * scale]);
-                        points.push([cmd.args[2] * scale, cmd.args[3] * scale]);
-                        points.push([cmd.args[4] * scale, cmd.args[5] * scale]);
-                        break;
-                }
-                return points;
-            };
-            return Text;
-        }());
-        models.Text = Text;
-        Text.metaParameters = [
-            { title: "font", type: "font", value: '*' },
-            { title: "text", type: "text", value: 'Hello' },
-            { title: "font size", type: "range", min: 10, max: 200, value: 72 },
-            { title: "combine", type: "bool", value: false },
-            { title: "center character origin", type: "bool", value: false }
-        ];
     })(models = MakerJs.models || (MakerJs.models = {}));
 })(MakerJs || (MakerJs = {}));
 MakerJs.version = "0.19.2";
