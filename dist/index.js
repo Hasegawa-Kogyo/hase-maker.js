@@ -4627,11 +4627,12 @@ var MakerJs;
                     MakerJs.extendObject(opts, sourceModel.exporterOptions['toDXF']);
                 }
             }
-            // Always export Maker.js dimensions as native DXF DIMENSION entities.
-            // Helper geometry is stripped from the exported model and replaced with STANDARD-style DXF dimensions.
+            // Export Maker.js dimensions as native DXF DIMENSION entities by default.
+            // Set useNativeDimensions to false for broader viewer compatibility.
+            var useNativeDimensions = opts.useNativeDimensions !== false;
             var collectedDimensions = [];
             var collectedLabels = [];
-            if (MakerJs.isModel(itemToExport)) {
+            if (useNativeDimensions && MakerJs.isModel(itemToExport)) {
                 var originalModel = itemToExport;
                 collectedDimensions = collectDXFDimensions(originalModel);
                 collectedLabels = collectDXFLabels(originalModel);

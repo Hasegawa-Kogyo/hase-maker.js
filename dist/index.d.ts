@@ -2759,6 +2759,11 @@ declare namespace MakerJs.exporter {
          */
         usePOLYLINE?: boolean;
         texts?: IDXFText[];
+        /**
+         * True by default. Set to false to export only dimension helper geometry
+         * (lines / arrows / text), which is often more compatible with basic DXF viewers.
+         */
+        useNativeDimensions?: boolean;
     }
     interface IDXFText {
         text: string;
