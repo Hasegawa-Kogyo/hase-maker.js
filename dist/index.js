@@ -5049,7 +5049,6 @@ var MakerJs;
 (function (MakerJs) {
     var exporter;
     (function (exporter) {
-        var DEFAULT_DXF_LINE_TYPE = 'CONTINUOUS';
         var defaultDXFLineTypes = {
             CONTINUOUS: { description: '______', patternLength: 0, elements: [] },
             DASHED: { description: '_ _ _ ', patternLength: 7.5, elements: [5, -2.5] },
@@ -5134,7 +5133,6 @@ var MakerJs;
                 fontSize: 9
             };
             var layerIds = [];
-            var lineTypes = getDXFLineTypes(options);
             var doc = {
                 entities: [],
                 header: {},
@@ -5205,7 +5203,7 @@ var MakerJs;
                     }
                     return normalizedName;
                 }
-                return DEFAULT_DXF_LINE_TYPE;
+                return "CONTINUOUS";
             }
             function addLayerId(layerId) {
                 if (layerIds.indexOf(layerId) < 0) {

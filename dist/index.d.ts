@@ -2845,17 +2845,17 @@ declare namespace MakerJs.importer {
     function parseNumericList(s: string): number[];
 }
 declare namespace MakerJs.exporter {
-    interface IDXFLineType {
-        description: string;
-        patternLength: number;
-        elements: number[];
-    }
     function toDXF(modelToExport: IModel, options?: IDXFRenderOptions): string;
     function toDXF(pathsToExport: IPath[], options?: IDXFRenderOptions): string;
     function toDXF(pathToExport: IPath, options?: IDXFRenderOptions): string;
     /**
      * DXF layer options.
      */
+    interface IDXFLineType {
+        description: string;
+        patternLength: number;
+        elements: number[];
+    }
     interface IDXFLayerOptions {
         /**
          * DXF layer color.
