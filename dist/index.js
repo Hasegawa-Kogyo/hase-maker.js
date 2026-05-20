@@ -5049,6 +5049,75 @@ var MakerJs;
 (function (MakerJs) {
     var exporter;
     (function (exporter) {
+        var DEFAULT_DXF_LINE_TYPE = 'CONTINUOUS';
+        var defaultDXFLineTypes = {
+            CONTINUOUS: { description: '______', patternLength: 0, elements: [] },
+            DASHED: { description: '_ _ _ ', patternLength: 7.5, elements: [5, -2.5] },
+            DOTTED: { description: '. . . ', patternLength: 1.5, elements: [0.5, -1.0] },
+            CENTER: { description: '____ _ ____ _ ', patternLength: 31.75, elements: [12.7, -2.54, 2.54, -2.54] },
+            CENTER2: { description: '__ _ __ _ ', patternLength: 15.875, elements: [6.35, -1.27, 1.27, -1.27] },
+            CENTERX2: { description: '________ _ ________ _ ', patternLength: 63.5, elements: [25.4, -5.08, 5.08, -5.08] },
+            PHANTOM: { description: '____ _ _ ____ _ _ ', patternLength: 38.1, elements: [12.7, -2.54, 2.54, -2.54, 2.54, -2.54] },
+            PHANTOM2: { description: '__ _ _ __ _ _ ', patternLength: 19.05, elements: [6.35, -1.27, 1.27, -1.27, 1.27, -1.27] },
+            PHANTOMX2: { description: '________ _ _ ________ _ _ ', patternLength: 76.2, elements: [25.4, -5.08, 5.08, -5.08, 5.08, -5.08] },
+            HIDDEN: { description: '_ _ _ _ _ ', patternLength: 9.525, elements: [3.175, -1.5875] },
+            HIDDEN2: { description: '_ _ _ _ ', patternLength: 4.7625, elements: [1.5875, -0.79375] },
+            HIDDENX2: { description: '__ __ __ __ ', patternLength: 19.05, elements: [6.35, -3.175] },
+            DASHDOT: { description: '____ . ____ . ', patternLength: 19.05, elements: [9.525, -3.175, 0, -3.175] },
+            DASHDOT2: { description: '__ . __ . ', patternLength: 9.525, elements: [4.7625, -1.5875, 0, -1.5875] },
+            DASHDOTX2: { description: '________ . ________ . ', patternLength: 38.1, elements: [19.05, -6.35, 0, -6.35] },
+            BORDER: { description: '____ _ ____ _ ____ _ ', patternLength: 45.72, elements: [12.7, -2.54, 12.7, -2.54, 2.54, -2.54] },
+            BORDER2: { description: '__ _ __ _ __ _ ', patternLength: 22.86, elements: [6.35, -1.27, 6.35, -1.27, 1.27, -1.27] },
+            BORDERX2: { description: '________ _ ________ _ ________ _ ', patternLength: 91.44, elements: [25.4, -5.08, 25.4, -5.08, 5.08, -5.08] },
+            DIVIDE: { description: '____ . . ____ . . ', patternLength: 25.4, elements: [12.7, -2.54, 0, -2.54, 0, -2.54] },
+            DIVIDE2: { description: '__ . . __ . . ', patternLength: 12.7, elements: [6.35, -1.27, 0, -1.27, 0, -1.27] },
+            DIVIDEX2: { description: '________ . . ________ . . ', patternLength: 50.8, elements: [25.4, -5.08, 0, -5.08, 0, -5.08] }
+        };
+        function cloneDXFLineType(lineType) {
+            return {
+                description: lineType.description,
+                patternLength: lineType.patternLength,
+                elements: lineType.elements ? lineType.elements.slice(0) : []
+            };
+        }
+        function copyDXFLineTypes(source) {
+            var copy = {};
+            for (var lineTypeName in source) {
+                copy[lineTypeName] = cloneDXFLineType(source[lineTypeName]);
+            }
+            return copy;
+        }
+        function normalizeDXFLineTypeName(lineTypeName) {
+            return (lineTypeName || '').toUpperCase();
+        }
+        function validateDXFLineType(lineTypeName, lineType) {
+            if (!lineType) {
+                throw new Error('DXF lineType "' + lineTypeName + '" is not defined.');
+            }
+            if (typeof lineType.description !== 'string') {
+                throw new Error('DXF lineType "' + lineTypeName + '" must have a description.');
+            }
+            if (!Array.isArray(lineType.elements)) {
+                throw new Error('DXF lineType "' + lineTypeName + '" must define elements as an array.');
+            }
+            var computedPatternLength = MakerJs.round(lineType.elements.reduce(function (total, element) { return total + Math.abs(element); }, 0), .000001);
+            var patternLength = lineType.patternLength === undefined ? computedPatternLength : lineType.patternLength;
+            if (Math.abs(patternLength - computedPatternLength) > .000001) {
+                throw new Error('DXF lineType "' + lineTypeName + '" has patternLength ' + patternLength + ' but elements sum to ' + computedPatternLength + '.');
+            }
+        }
+        function getDXFLineTypes(options) {
+            var lineTypes = copyDXFLineTypes(defaultDXFLineTypes);
+            if (options && options.lineTypes) {
+                for (var lineTypeName in options.lineTypes) {
+                    var normalizedName = normalizeDXFLineTypeName(lineTypeName);
+                    var lineType = options.lineTypes[lineTypeName];
+                    validateDXFLineType(normalizedName, lineType);
+                    lineTypes[normalizedName] = cloneDXFLineType(lineType);
+                }
+            }
+            return lineTypes;
+        }
         /**
          * Renders an item in AutoDesk DFX file format.
          *
@@ -5065,6 +5134,7 @@ var MakerJs;
                 fontSize: 9
             };
             var layerIds = [];
+            var lineTypes = getDXFLineTypes(options);
             var doc = {
                 entities: [],
                 header: {},
@@ -5078,6 +5148,7 @@ var MakerJs;
                     MakerJs.extendObject(opts, modelToExport.exporterOptions['toDXF']);
                 }
             }
+            var resolvedLineTypes = getDXFLineTypes(opts);
             // -------------------------
             // ✅ Unicode / Japanese text support
             // Encode non-ASCII as AutoCAD-style \U+XXXX
@@ -5128,9 +5199,13 @@ var MakerJs;
             }
             function lineTypeLayerOptions(layer) {
                 if (opts.layerOptions && opts.layerOptions[layer] && opts.layerOptions[layer].lineType) {
-                    return opts.layerOptions[layer].lineType;
+                    var normalizedName = normalizeDXFLineTypeName(opts.layerOptions[layer].lineType);
+                    if (!(normalizedName in resolvedLineTypes)) {
+                        throw new Error('DXF lineType "' + opts.layerOptions[layer].lineType + '" is not defined.');
+                    }
+                    return normalizedName;
                 }
-                return "CONTINUOUS";
+                return DEFAULT_DXF_LINE_TYPE;
             }
             function addLayerId(layerId) {
                 if (layerIds.indexOf(layerId) < 0) {
@@ -5364,30 +5439,18 @@ var MakerJs;
                 return layerEntity;
             }
             function lineTypesOut() {
-                // Dash pattern convention: positive = drawn segment, negative = gap, 0 can be dot.
-                // patternLength is sum of absolute values.
                 var lineStyleTable = {
-                    lineTypes: {
-                        "CONTINUOUS": {
-                            name: "CONTINUOUS",
-                            description: "______",
-                            patternLength: 0,
-                            elements: []
-                        },
-                        "DASHED": {
-                            name: "DASHED",
-                            description: "_ _ _ ",
-                            elements: [5, -2.5],
-                            patternLength: 7.5
-                        },
-                        "DOTTED": {
-                            name: "DOTTED",
-                            description: ". . . ",
-                            elements: [0.5, -1.0],
-                            patternLength: 1.5
-                        }
-                    }
+                    lineTypes: {}
                 };
+                for (var lineTypeName in resolvedLineTypes) {
+                    var lineType = resolvedLineTypes[lineTypeName];
+                    lineStyleTable.lineTypes[lineTypeName] = {
+                        name: lineTypeName,
+                        description: lineType.description,
+                        patternLength: lineType.patternLength,
+                        elements: lineType.elements.slice(0)
+                    };
+                }
                 var tableName = 'lineType';
                 doc.tables[tableName] = lineStyleTable;
             }

@@ -2845,6 +2845,11 @@ declare namespace MakerJs.importer {
     function parseNumericList(s: string): number[];
 }
 declare namespace MakerJs.exporter {
+    interface IDXFLineType {
+        description: string;
+        patternLength: number;
+        elements: number[];
+    }
     function toDXF(modelToExport: IModel, options?: IDXFRenderOptions): string;
     function toDXF(pathsToExport: IPath[], options?: IDXFRenderOptions): string;
     function toDXF(pathToExport: IPath, options?: IDXFRenderOptions): string;
@@ -2862,9 +2867,9 @@ declare namespace MakerJs.exporter {
         fontSize?: number;
         /**
          * DXF linetype name for this layer.
-         * Example: "CONTINUOUS", "DASHED", "DOTTED"
+         * Example: "CONTINUOUS", "DASHED", "DOTTED", "CENTER", "PHANTOM"
          */
-        lineType?: 'CONTINUOUS' | 'DASHED' | 'DOTTED';
+        lineType?: string;
     }
     /**
      * DXF rendering options.
@@ -2884,6 +2889,12 @@ declare namespace MakerJs.exporter {
          * Flag to use POLYLINE
          */
         usePOLYLINE?: boolean;
+        /**
+         * Custom DXF line type definitions keyed by name.
+         */
+        lineTypes?: {
+            [lineTypeName: string]: IDXFLineType;
+        };
         texts?: IDXFText[];
     }
     interface IDXFText {
