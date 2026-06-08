@@ -2404,6 +2404,7 @@ declare namespace MakerJs {
     type IDimensionData = ILinearDimensionData | IAngularDimensionData | IRadialDimensionData;
     interface IDimensionModel extends IModel {
         dimensionData: IDimensionData;
+        dxfModel?: IModel;
     }
     interface ILabelData {
         type: 'label';
@@ -4141,6 +4142,7 @@ declare namespace MakerJs.models {
         layer: string;
         caption: ICaption;
         dimensionData: ILinearDimensionData;
+        dxfModel: IModel;
         constructor(line: IPathLine, offset: number, options?: IDimensionOptions);
         constructor(point1: IPoint, point2: IPoint, offset: number, options?: IDimensionOptions);
     }
