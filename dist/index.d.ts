@@ -2852,6 +2852,11 @@ declare namespace MakerJs.exporter {
     /**
      * DXF layer options.
      */
+    interface IDXFLineType {
+        description: string;
+        patternLength: number;
+        elements: number[];
+    }
     interface IDXFLayerOptions {
         /**
          * DXF layer color.
@@ -2863,9 +2868,9 @@ declare namespace MakerJs.exporter {
         fontSize?: number;
         /**
          * DXF linetype name for this layer.
-         * Example: "CONTINUOUS", "DASHED", "DOTTED"
+         * Example: "CONTINUOUS", "DASHED", "DOTTED", "CENTER", "PHANTOM"
          */
-        lineType?: 'CONTINUOUS' | 'DASHED' | 'DOTTED';
+        lineType?: string;
     }
     /**
      * DXF rendering options.
@@ -2885,6 +2890,12 @@ declare namespace MakerJs.exporter {
          * Flag to use POLYLINE
          */
         usePOLYLINE?: boolean;
+        /**
+         * Custom DXF line type definitions keyed by name.
+         */
+        lineTypes?: {
+            [lineTypeName: string]: IDXFLineType;
+        };
         texts?: IDXFText[];
     }
     interface IDXFText {
