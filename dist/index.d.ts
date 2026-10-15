@@ -2365,6 +2365,8 @@ declare namespace MakerJs {
         text?: string;
         textHeight?: number;
         arrowSize?: number;
+        /** Place linear dimension arrowheads inside or outside the measured span. Defaults to inside. */
+        arrowPlacement?: 'inside' | 'outside';
         extensionLineOffset?: number;
         textPosition?: IPoint;
         textRotation?: number;
