@@ -2388,6 +2388,8 @@ declare namespace MakerJs {
         point2: IPoint;
         offset: number;
         dimensionAngle?: number;
+        /** Explicit text midpoint for the exported native DXF dimension. */
+        dxfTextPosition?: IPoint;
     }
     interface IAngularDimensionData extends IDimensionDataBase {
         type: 'angular';
