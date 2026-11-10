@@ -2367,6 +2367,11 @@ declare namespace MakerJs {
         arrowSize?: number;
         /** Place linear dimension arrowheads inside or outside the measured span. Defaults to inside. */
         arrowPlacement?: 'inside' | 'outside';
+        /** Extra line length beyond outside text, in model units. Defaults to half the text height.
+         * Applies to linear/aligned dimensions with outside arrows. Must be finite and nonnegative.
+         * Arrowheads retain at least arrowSize of supporting line. Set to textHeight * 2 for legacy padding.
+         */
+        outsideTextPadding?: number;
         extensionLineOffset?: number;
         textPosition?: IPoint;
         textRotation?: number;
