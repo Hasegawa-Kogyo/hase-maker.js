@@ -2361,6 +2361,23 @@ declare namespace MakerJs.units {
 }
 declare namespace MakerJs {
     type DimensionType = 'linear' | 'aligned' | 'angular' | 'radial' | 'diameter';
+    /** Bent caption leader lengths are in model units; omitted lengths follow text height. */
+    interface IDimensionTextLeaderOptions {
+        diagonalRun?: number;
+        diagonalRise?: number;
+        landingLength?: number;
+        textGap?: number;
+        arrowTailLength?: number;
+        side?: 'positive' | 'negative';
+        attachment?: 'start' | 'end';
+        alongDirection?: 1 | -1;
+    }
+    /** One dimension owns the shared joint; use none on its neighbor to avoid duplicates. */
+    interface IDimensionEndpointMarkers {
+        start?: 'arrow' | 'joint' | 'none';
+        end?: 'arrow' | 'joint' | 'none';
+        jointRadius?: number;
+    }
     interface IDimensionOptions {
         text?: string;
         textHeight?: number;
@@ -2372,6 +2389,8 @@ declare namespace MakerJs {
          * Arrowheads retain at least arrowSize of supporting line. Set to textHeight * 2 for legacy padding.
          */
         outsideTextPadding?: number;
+        textLeader?: IDimensionTextLeaderOptions;
+        endpointMarkers?: IDimensionEndpointMarkers;
         extensionLineOffset?: number;
         textPosition?: IPoint;
         textRotation?: number;
@@ -2395,6 +2414,10 @@ declare namespace MakerJs {
         dimensionAngle?: number;
         /** Explicit text midpoint for the exported native DXF dimension. */
         dxfTextPosition?: IPoint;
+        /** Explicit saved graphic styles; retained through clone and sheet transforms. */
+        textLeader?: boolean;
+        endpointMarkers?: boolean;
+        explicitTextHeightRatio?: number;
     }
     interface IAngularDimensionData extends IDimensionDataBase {
         type: 'angular';
@@ -2428,6 +2451,11 @@ declare namespace MakerJs {
     }
 }
 declare namespace MakerJs.dimension {
+    /** True only for opt-in linear caption leaders or endpoint marker styles. */
+    function hasExplicitStyle(modelContext: IModel): boolean;
+    function getExplicitTextHeight(modelContext: IModel): number;
+    /** Resolve transformed primary geometry for native DXF without mutating the input. */
+    function prepareExplicitStyle(source: IDimensionModel): IDimensionModel;
     interface IPathNameOptions {
         key?: string;
         layer?: string;
